@@ -1,0 +1,564 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cloud Contact Manager</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.1);
+            overflow: hidden;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
+            color: white;
+            padding: 30px;
+            text-align: center;
+        }
+
+        .header h1 {
+            font-size: 2.5em;
+            margin-bottom: 10px;
+            font-weight: 700;
+        }
+
+        .header p {
+            font-size: 1.1em;
+            opacity: 0.9;
+        }
+
+        .main-content {
+            padding: 40px;
+        }
+
+        .auth-section {
+            text-align: center;
+            margin-bottom: 40px;
+        }
+
+        .auth-buttons {
+            display: flex;
+            gap: 20px;
+            justify-content: center;
+            flex-wrap: wrap;
+        }
+
+        .auth-btn {
+            padding: 15px 30px;
+            border: none;
+            border-radius: 50px;
+            font-size: 1.1em;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            min-width: 200px;
+            justify-content: center;
+        }
+
+        .google-btn {
+            background: #4285f4;
+            color: white;
+        }
+
+        .google-btn:hover {
+            background: #357ae8;
+            transform: translateY(-2px);
+        }
+
+        .onedrive-btn {
+            background: #0078d4;
+            color: white;
+        }
+
+        .onedrive-btn:hover {
+            background: #106ebe;
+            transform: translateY(-2px);
+        }
+
+        .contact-form {
+            background: #f8f9fa;
+            padding: 30px;
+            border-radius: 15px;
+            margin-bottom: 30px;
+            display: none;
+        }
+
+        .contact-form.active {
+            display: block;
+        }
+
+        .form-group {
+            margin-bottom: 20px;
+        }
+
+        .form-group label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: 600;
+            color: #333;
+        }
+
+        .form-group input {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #e9ecef;
+            border-radius: 8px;
+            font-size: 1em;
+            transition: border-color 0.3s ease;
+        }
+
+        .form-group input:focus {
+            outline: none;
+            border-color: #4facfe;
+        }
+
+        .form-buttons {
+            display: flex;
+            gap: 15px;
+            justify-content: flex-end;
+        }
+
+        .btn {
+            padding: 12px 25px;
+            border: none;
+            border-radius: 8px;
+            font-size: 1em;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .btn-primary {
+            background: #4facfe;
+            color: white;
+        }
+
+        .btn-primary:hover {
+            background: #45a3f5;
+        }
+
+        .btn-secondary {
+            background: #6c757d;
+            color: white;
+        }
+
+        .btn-secondary:hover {
+            background: #5a6268;
+        }
+
+        .contacts-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+            gap: 20px;
+            margin-top: 30px;
+        }
+
+        .contact-card {
+            background: white;
+            border: 2px solid #e9ecef;
+            border-radius: 15px;
+            padding: 20px;
+            transition: all 0.3s ease;
+        }
+
+        .contact-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 10px 25px rgba(0,0,0,0.1);
+        }
+
+        .contact-name {
+            font-size: 1.3em;
+            font-weight: 700;
+            color: #333;
+            margin-bottom: 10px;
+        }
+
+        .contact-info {
+            color: #666;
+            margin-bottom: 5px;
+        }
+
+        .contact-actions {
+            margin-top: 15px;
+            display: flex;
+            gap: 10px;
+        }
+
+        .btn-small {
+            padding: 8px 15px;
+            font-size: 0.9em;
+        }
+
+        .btn-edit {
+            background: #28a745;
+            color: white;
+        }
+
+        .btn-edit:hover {
+            background: #218838;
+        }
+
+        .btn-delete {
+            background: #dc3545;
+            color: white;
+        }
+
+        .btn-delete:hover {
+            background: #c82333;
+        }
+
+        .export-section {
+            background: #e8f5e8;
+            padding: 20px;
+            border-radius: 15px;
+            margin-top: 30px;
+            text-align: center;
+        }
+
+        .status-message {
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            display: none;
+        }
+
+        .status-success {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+
+        .status-error {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+
+        .demo-note {
+            background: #fff3cd;
+            border: 1px solid #ffeaa7;
+            color: #856404;
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+        }
+
+        @media (max-width: 768px) {
+            .auth-buttons {
+                flex-direction: column;
+                align-items: center;
+            }
+
+            .contacts-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .main-content {
+                padding: 20px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🌟 Cloud Contact Manager</h1>
+            <p>Manage your contacts with cloud storage integration</p>
+        </div>
+
+        <div class="main-content">
+            <div class="demo-note">
+                <strong>📝 Demo Mode:</strong> This is a working demo. In production, you'll need to set up actual API credentials for Google Drive and OneDrive integration.
+            </div>
+
+            <div id="statusMessage" class="status-message"></div>
+
+            <div class="auth-section">
+                <h2>Connect Your Cloud Storage</h2>
+                <div class="auth-buttons">
+                    <button class="auth-btn google-btn" onclick="connectGoogleDrive()">
+                        <span>📁</span> Connect Google Drive
+                    </button>
+                    <button class="auth-btn onedrive-btn" onclick="connectOneDrive()">
+                        <span>💾</span> Connect OneDrive
+                    </button>
+                </div>
+            </div>
+
+            <div id="contactForm" class="contact-form">
+                <h3>Add New Contact</h3>
+                <form id="contactFormElement">
+                    <div class="form-group">
+                        <label for="name">Full Name *</label>
+                        <input type="text" id="name" name="name" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="phone">Phone Number *</label>
+                        <input type="tel" id="phone" name="phone" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="email">Email Address</label>
+                        <input type="email" id="email" name="email">
+                    </div>
+                    <div class="form-group">
+                        <label for="address">Address</label>
+                        <input type="text" id="address" name="address">
+                    </div>
+                    <div class="form-buttons">
+                        <button type="button" class="btn btn-secondary" onclick="cancelForm()">Cancel</button>
+                        <button type="submit" class="btn btn-primary">Save Contact</button>
+                    </div>
+                </form>
+            </div>
+
+            <div id="contactsSection" style="display: none;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+                    <h3>Your Contacts</h3>
+                    <button class="btn btn-primary" onclick="showAddForm()">+ Add Contact</button>
+                </div>
+                <div id="contactsGrid" class="contacts-grid"></div>
+            </div>
+
+            <div id="exportSection" class="export-section" style="display: none;">
+                <h3>📲 Export Contacts</h3>
+                <p>Export your contacts to import them into your phone</p>
+                <button class="btn btn-primary" onclick="exportContacts()">Download vCard (.vcf)</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Global variables
+        let contacts = [];
+        let isConnected = false;
+        let editingId = null;
+        let storageProvider = null;
+
+        // Mock storage for demo purposes
+        const mockStorage = {
+            save: function(data) {
+                localStorage.setItem('contacts', JSON.stringify(data));
+                return Promise.resolve();
+            },
+            load: function() {
+                const data = localStorage.getItem('contacts');
+                return Promise.resolve(data ? JSON.parse(data) : []);
+            }
+        };
+
+        // Authentication functions
+        async function connectGoogleDrive() {
+            showStatus('Connecting to Google Drive...', 'success');
+
+            // In production, you would use Google Drive API
+            // For demo, we'll simulate the connection
+            setTimeout(() => {
+                isConnected = true;
+                storageProvider = 'google';
+                showStatus('Successfully connected to Google Drive!', 'success');
+                showContactsSection();
+                loadContacts();
+            }, 1500);
+        }
+
+        async function connectOneDrive() {
+            showStatus('Connecting to OneDrive...', 'success');
+
+            // In production, you would use Microsoft Graph API
+            // For demo, we'll simulate the connection
+            setTimeout(() => {
+                isConnected = true;
+                storageProvider = 'onedrive';
+                showStatus('Successfully connected to OneDrive!', 'success');
+                showContactsSection();
+                loadContacts();
+            }, 1500);
+        }
+
+        // UI functions
+        function showStatus(message, type) {
+            const statusEl = document.getElementById('statusMessage');
+            statusEl.textContent = message;
+            statusEl.className = `status-message status-${type}`;
+            statusEl.style.display = 'block';
+
+            setTimeout(() => {
+                statusEl.style.display = 'none';
+            }, 3000);
+        }
+
+        function showContactsSection() {
+            document.getElementById('contactsSection').style.display = 'block';
+            document.getElementById('exportSection').style.display = 'block';
+        }
+
+        function showAddForm() {
+            document.getElementById('contactForm').classList.add('active');
+            document.getElementById('contactFormElement').reset();
+            editingId = null;
+        }
+
+        function cancelForm() {
+            document.getElementById('contactForm').classList.remove('active');
+            editingId = null;
+        }
+
+        // Contact management functions
+        async function loadContacts() {
+            try {
+                contacts = await mockStorage.load();
+                renderContacts();
+            } catch (error) {
+                showStatus('Error loading contacts', 'error');
+            }
+        }
+
+        function renderContacts() {
+            const grid = document.getElementById('contactsGrid');
+
+            if (contacts.length === 0) {
+                grid.innerHTML = '<div style="text-align: center; padding: 40px; color: #666;">No contacts yet. Add your first contact!</div>';
+                return;
+            }
+
+            grid.innerHTML = contacts.map(contact => `
+                <div class="contact-card">
+                    <div class="contact-name">${contact.name}</div>
+                    <div class="contact-info">📞 ${contact.phone}</div>
+                    ${contact.email ? `<div class="contact-info">✉️ ${contact.email}</div>` : ''}
+                    ${contact.address ? `<div class="contact-info">📍 ${contact.address}</div>` : ''}
+                    <div class="contact-actions">
+                        <button class="btn btn-edit btn-small" onclick="editContact('${contact.id}')">Edit</button>
+                        <button class="btn btn-delete btn-small" onclick="deleteContact('${contact.id}')">Delete</button>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        function editContact(id) {
+            const contact = contacts.find(c => c.id === id);
+            if (!contact) return;
+
+            document.getElementById('name').value = contact.name;
+            document.getElementById('phone').value = contact.phone;
+            document.getElementById('email').value = contact.email || '';
+            document.getElementById('address').value = contact.address || '';
+
+            editingId = id;
+            document.getElementById('contactForm').classList.add('active');
+        }
+
+        function deleteContact(id) {
+            if (confirm('Are you sure you want to delete this contact?')) {
+                contacts = contacts.filter(c => c.id !== id);
+                saveContacts();
+                renderContacts();
+                showStatus('Contact deleted successfully', 'success');
+            }
+        }
+
+        async function saveContacts() {
+            try {
+                await mockStorage.save(contacts);
+            } catch (error) {
+                showStatus('Error saving contacts', 'error');
+            }
+        }
+
+        // Form handling
+        document.getElementById('contactFormElement').addEventListener('submit', async function(e) {
+            e.preventDefault();
+
+            const formData = new FormData(e.target);
+            const contact = {
+                id: editingId || Date.now().toString(),
+                name: formData.get('name'),
+                phone: formData.get('phone'),
+                email: formData.get('email'),
+                address: formData.get('address')
+            };
+
+            // Check for duplicates (by phone number)
+            const existingIndex = contacts.findIndex(c => c.phone === contact.phone && c.id !== contact.id);
+
+            if (editingId) {
+                // Update existing contact
+                const index = contacts.findIndex(c => c.id === editingId);
+                contacts[index] = contact;
+                showStatus('Contact updated successfully', 'success');
+            } else if (existingIndex !== -1) {
+                // Update duplicate instead of creating new
+                contacts[existingIndex] = contact;
+                showStatus('Contact updated (duplicate found)', 'success');
+            } else {
+                // Add new contact
+                contacts.push(contact);
+                showStatus('Contact added successfully', 'success');
+            }
+
+            await saveContacts();
+            renderContacts();
+            cancelForm();
+        });
+
+        // Export function
+        function exportContacts() {
+            if (contacts.length === 0) {
+                showStatus('No contacts to export', 'error');
+                return;
+            }
+
+            // Generate vCard format
+            const vCardData = contacts.map(contact => {
+                return [
+                    'BEGIN:VCARD',
+                    'VERSION:3.0',
+                    `FN:${contact.name}`,
+                    `TEL:${contact.phone}`,
+                    contact.email ? `EMAIL:${contact.email}` : '',
+                    contact.address ? `ADR:;;${contact.address};;;;` : '',
+                    'END:VCARD'
+                ].filter(line => line).join('\n');
+            }).join('\n\n');
+
+            // Download file
+            const blob = new Blob([vCardData], { type: 'text/vcard' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'contacts.vcf';
+            a.click();
+            URL.revokeObjectURL(url);
+
+            showStatus('Contacts exported successfully! Import the .vcf file to your phone.', 'success');
+        }
+
+        // Initialize
+        document.addEventListener('DOMContentLoaded', function() {
+            // Load any existing contacts from localStorage for demo
+            loadContacts();
+        });
+    </script>
+</body>
+</html>
