@@ -5,7 +5,7 @@ A modern web application for managing your contacts with cloud storage integrati
 
 ## 🚀 Live Demo
 
-**[Try it here!](https://sandiren.github.io/cloud-contact-manager)**
+**[Try it here!](https://sandiren.github.io/Contact_list_updater/)**
 
 ## ✨ Features
 
