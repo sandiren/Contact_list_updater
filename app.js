@@ -145,6 +145,12 @@ function generateQRCode() {
 function handleUpload() {
   const file = document.getElementById("unifiedUpload").files[0];
   if (!file) return;
+
+  if (contacts.length && !confirm("⚠️ This will replace all current contacts. Continue?")) return;
+
+  contacts = [];
+  renderContacts();
+
   const ext = file.name.split('.').pop().toLowerCase();
   if (ext === "vcf") importVCF(file);
   else if (ext === "xlsx" || ext === "csv") importExcel(file);
@@ -175,23 +181,31 @@ function importVCF(file) {
 
 function importExcel(file) {
   const reader = new FileReader();
-  reader.onload = function(e) {
-    const data = new Uint8Array(e.target.result);
-    const wb = XLSX.read(data, { type: 'array' });
-    const sheet = wb.Sheets[wb.SheetNames[0]];
-    const rows = XLSX.utils.sheet_to_json(sheet);
-    rows.forEach(row => {
-      if (!row.Phone || contacts.find(c => c.phone === row.Phone)) return;
-      contacts.push({
-        name: row.Name || "",
-        phone: row.Phone,
-        email: row.Email || "",
-        address: row.Address || "",
-        birthday: row.Birthday || ""
+  reader.onload = function (e) {
+    try {
+      const data = new Uint8Array(e.target.result);
+      const workbook = XLSX.read(data, { type: 'array' });
+      const sheet = workbook.Sheets[workbook.SheetNames[0]];
+      const rows = XLSX.utils.sheet_to_json(sheet, { defval: "" });
+
+      rows.forEach(row => {
+        let phone = row.Phone || row.phone || row["Phone Number"];
+        if (!phone || contacts.find(c => c.phone === phone)) return;
+
+        contacts.push({
+          name: row.Name || row.name || "",
+          phone: phone,
+          email: row.Email || row.email || "",
+          address: row.Address || row.address || "",
+          birthday: row.Birthday || row.birthday || ""
+        });
       });
-    });
-    renderContacts();
-    alert("Excel imported.");
+
+      renderContacts();
+      alert("✅ Excel imported successfully.");
+    } catch (err) {
+      alert("⚠️ Error reading Excel file: " + err.message);
+    }
   };
   reader.readAsArrayBuffer(file);
 }
