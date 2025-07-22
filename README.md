@@ -13,6 +13,7 @@ A modern, browser-based contact management web app that lets you:
 
 
 - 📇 This web app can be used to manage emergency contact list that need to be maintained on a regular basis to ensure good internal communication.
+- Try it [here](https://contact-list-updater.vercel.app/)
 ---
 
 ## 🚀 How to Use
