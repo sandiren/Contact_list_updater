@@ -5,61 +5,102 @@ let customFieldDefs = [];
 let currentFilter = { active: true }; // Default to show active contacts
 
 // Check login status on page load
-document.addEventListener('DOMContentLoaded', () => {
-    checkSessionAndLoadData();
+document.addEventListener('DOMContentLoaded', async () => {
+    // Check for login status
+    if (!sessionStorage.getItem('isLoggedIn')) {
+        // If not on login page, redirect
+        if (!window.location.pathname.endsWith('login.html')) {
+            window.location.href = 'login.html';
+        }
+        // If on login page, initialize DB for login check
+        else {
+            await DB.init();
+            document.getElementById('loginForm').addEventListener('submit', handleLogin);
+        }
+        return; // Don't initialize main app if not logged in
+    }
 
-    // Modal handling
-    const contactModal = document.getElementById('contactModal');
-    contactModal.addEventListener('hidden.bs.modal', resetForm);
+    // If logged in but on login page, redirect to app
+    if (window.location.pathname.endsWith('login.html')) {
+        window.location.href = 'index.html';
+        return;
+    }
 
-    // Form submission
-    document.getElementById('contactForm').addEventListener('submit', handleSaveContact);
+    // Initialize the database and load data
+    await DB.init();
+    await loadInitialData();
+    setupUIEventListeners();
 });
 
-async function checkSessionAndLoadData() {
-    // This is a simplified check. In a real app, you'd have a dedicated /api/session endpoint.
-    // For now, we assume if we can fetch contacts, we are logged in.
-    try {
-        await loadInitialData();
-        // If successful, setup UI listeners
-        setupUIEventListeners();
-    } catch (error) {
-        // If fetching fails, it's likely due to not being authenticated
-        console.error("Authentication check failed. Redirecting to login.");
-        window.location.href = '/login.html';
-    }
-}
-
 async function loadInitialData() {
-    const [contactsRes, categoriesRes, customFieldsRes] = await Promise.all([
-        fetchWithAuth(`/contacts?active=${currentFilter.active}`),
-        fetchWithAuth('/categories'),
-        fetchWithAuth('/custom-fields')
-    ]);
+    // Fetch all required data from the local DB
+    const isActiveFilter = currentFilter.active ? 1 : 0;
+    const contactsSql = `
+        SELECT c.*, GROUP_CONCAT(cat.name) as categories
+        FROM contacts c
+        LEFT JOIN contact_categories cc ON c.id = cc.contact_id
+        LEFT JOIN categories cat ON cc.category_id = cat.id
+        WHERE c.is_active = ?
+        GROUP BY c.id
+    `;
+    contacts = DB.exec(contactsSql, [isActiveFilter]);
 
-    if (!contactsRes.ok) throw new Error('Failed to fetch contacts');
+    categories = DB.exec('SELECT * FROM categories ORDER BY name');
+    customFieldDefs = DB.exec('SELECT * FROM custom_fields_definitions ORDER BY field_name');
 
-    contacts = await contactsRes.json();
-    categories = await categoriesRes.json();
-    customFieldDefs = await customFieldsRes.json();
+    // For each contact, fetch its custom fields
+    contacts.forEach(contact => {
+        const customFieldsSql = `
+            SELECT cfd.field_name, cfv.value
+            FROM custom_fields_values cfv
+            JOIN custom_fields_definitions cfd ON cfv.field_id = cfd.id
+            WHERE cfv.contact_id = ?
+        `;
+        const fields = DB.exec(customFieldsSql, [contact.id]);
+        contact.custom_fields = fields.reduce((acc, field) => {
+            acc[field.field_name] = field.value;
+            return acc;
+        }, {});
+    });
 
     renderContacts();
     populateCategoryFilter();
 }
 
 function setupUIEventListeners() {
-    document.getElementById('searchInput').addEventListener('input', filterContacts);
-    document.getElementById('logoutButton').addEventListener('click', logout);
-    document.getElementById('addContactBtn').addEventListener('click', () => openContactModal());
-    document.getElementById('filterToggle').addEventListener('change', toggleActiveFilter);
-    // Add more listeners for new UI elements like category management, etc.
+    // Main page listeners
+    if(document.getElementById('searchInput')) {
+        document.getElementById('searchInput').addEventListener('input', filterContacts);
+        document.getElementById('logoutButton').addEventListener('click', logout);
+        document.getElementById('addContactBtn').addEventListener('click', () => openContactModal());
+        document.getElementById('filterToggle').addEventListener('change', toggleActiveFilter);
+        document.getElementById('exportDbBtn').addEventListener('click', () => DB.exportDb());
+        document.getElementById('importDbInput').addEventListener('change', handleDbImport);
+
+        // Bulk Actions
+        document.getElementById('bulkApplyBtn').addEventListener('click', handleBulkAction);
+
+        // Modals
+        const categoriesModal = document.getElementById('categoriesModal');
+        categoriesModal.addEventListener('show.bs.modal', renderCategoryList);
+        document.getElementById('addCategoryForm').addEventListener('submit', addCategory);
+
+        const customFieldsModal = document.getElementById('customFieldsModal');
+        customFieldsModal.addEventListener('show.bs.modal', renderCustomFieldList);
+        document.getElementById('addCustomFieldForm').addEventListener('submit', addCustomField);
+    }
+
+    // Add/Edit Contact Form
+    if (document.getElementById('contactForm')) {
+       document.getElementById('contactForm').addEventListener('submit', handleSaveContact);
+    }
 }
 
 // --- RENDERING ---
-
 function renderContacts(data = contacts) {
     const grid = document.getElementById('contactsGrid');
-    grid.innerHTML = data.map((c, i) => `
+    if (!grid) return;
+    grid.innerHTML = data.map((c) => `
         <div class="contact-card">
             <input type="checkbox" class="contact-select" data-contact-id="${c.id}">
             <strong>${c.name}</strong> ${c.is_active ? '' : '<span class="badge bg-secondary">Archived</span>'}<br />
@@ -86,12 +127,10 @@ function renderCustomFields(fields) {
     return html;
 }
 
-// --- DATA FETCHING & MANIPULATION ---
-
-async function handleSaveContact(e) {
+// --- DATA MANIPULATION ---
+function handleSaveContact(e) {
     e.preventDefault();
     const editingId = document.getElementById('editingIndex').value;
-
     const contactData = {
         name: document.getElementById('name').value.trim(),
         phone: document.getElementById('phone').value.trim(),
@@ -99,51 +138,53 @@ async function handleSaveContact(e) {
         address: document.getElementById('address').value.trim(),
         birthday: document.getElementById('birthday').value,
         is_active: document.getElementById('is_active').checked ? 1 : 0,
-        categories: Array.from(document.getElementById('categories').selectedOptions).map(opt => opt.value),
-        custom_fields: {}
     };
+    const selectedCategoryIds = Array.from(document.getElementById('categories').selectedOptions).map(opt => opt.value);
+    let contactId = editingId;
 
+    if (editingId) {
+        const sql = `UPDATE contacts SET name=?, phone=?, email=?, address=?, birthday=?, is_active=? WHERE id=?`;
+        DB.run(sql, [contactData.name, contactData.phone, contactData.email, contactData.address, contactData.birthday, contactData.is_active, editingId]);
+    } else {
+        const sql = 'INSERT INTO contacts (name, phone, email, address, birthday, is_active) VALUES (?, ?, ?, ?, ?, ?)';
+        DB.run(sql, [contactData.name, contactData.phone, contactData.email, contactData.address, contactData.birthday, contactData.is_active]);
+        const newContact = DB.exec('SELECT last_insert_rowid() as id');
+        contactId = newContact[0].id;
+    }
+
+    DB.run('DELETE FROM contact_categories WHERE contact_id = ?', [contactId]);
+    if (selectedCategoryIds.length) {
+        const catStmt = 'INSERT INTO contact_categories (contact_id, category_id) VALUES (?, ?)';
+        selectedCategoryIds.forEach(catId => DB.run(catStmt, [contactId, catId]));
+    }
+
+    DB.run('DELETE FROM custom_fields_values WHERE contact_id = ?', [contactId]);
     customFieldDefs.forEach(field => {
         const input = document.getElementById(`custom_${field.id}`);
-        if(input) contactData.custom_fields[field.id] = input.value;
-    });
-
-    const url = editingId ? `/contacts/${editingId}` : '/contacts';
-    const method = editingId ? 'PUT' : 'POST';
-
-    const response = await fetchWithAuth(url, {
-        method,
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(contactData)
-    });
-
-    if (response.ok) {
-        bootstrap.Modal.getInstance(document.getElementById('contactModal')).hide();
-        loadInitialData(); // Reload all data
-    } else {
-        const err = await response.json();
-        alert(`Error: ${err.message}`);
-    }
-}
-
-async function deleteContact(id) {
-    if (confirm("Are you sure you want to delete this contact?")) {
-        const response = await fetchWithAuth(`/contacts/${id}`, { method: 'DELETE' });
-        if (response.ok) {
-            loadInitialData();
-        } else {
-            alert('Failed to delete contact.');
+        if(input && input.value) {
+            DB.run('INSERT INTO custom_fields_values (contact_id, field_id, value) VALUES (?, ?, ?)', [contactId, field.id, input.value]);
         }
+    });
+
+    bootstrap.Modal.getInstance(document.getElementById('contactModal')).hide();
+    loadInitialData();
+}
+
+function deleteContact(id) {
+    if (confirm("Are you sure you want to delete this contact?")) {
+        DB.run('DELETE FROM contacts WHERE id = ?', [id]);
+        loadInitialData();
     }
 }
 
-async function openContactModal(contactId = null) {
+// --- MODAL & UI HELPERS ---
+function openContactModal(contactId = null) {
     resetForm();
     populateCategoriesDropdown();
     populateCustomFieldsForm();
 
     if (contactId) {
-        const contact = contacts.find(c => c.id === contactId);
+        const contact = DB.exec('SELECT * FROM contacts WHERE id = ?', [contactId])[0];
         if (contact) {
             document.getElementById('editingIndex').value = contact.id;
             document.getElementById('contactModalLabel').textContent = 'Edit Contact';
@@ -154,46 +195,36 @@ async function openContactModal(contactId = null) {
             document.getElementById('birthday').value = contact.birthday || '';
             document.getElementById('is_active').checked = contact.is_active;
 
-            // Select assigned categories
-            const assignedCategories = contact.categories ? contact.categories.split(',') : [];
-            const categoryIds = categories.filter(c => assignedCategories.includes(c.name)).map(c => c.id);
+            const assignedCategoriesResult = DB.exec('SELECT category_id FROM contact_categories WHERE contact_id = ?', [contactId]);
+            const assignedCategoryIds = assignedCategoriesResult.map(c => c.category_id);
             Array.from(document.getElementById('categories').options).forEach(opt => {
-                if (categoryIds.includes(parseInt(opt.value))) {
-                    opt.selected = true;
-                }
+                if (assignedCategoryIds.includes(parseInt(opt.value))) opt.selected = true;
             });
 
-            // Populate custom fields
-            customFieldDefs.forEach(field => {
-                const input = document.getElementById(`custom_${field.id}`);
-                if (input && contact.custom_fields && contact.custom_fields[field.field_name]) {
-                    input.value = contact.custom_fields[field.field_name];
-                }
+            const customValues = DB.exec('SELECT field_id, value FROM custom_fields_values WHERE contact_id = ?', [contactId]);
+            customValues.forEach(val => {
+                const input = document.getElementById(`custom_${val.field_id}`);
+                if (input) input.value = val.value;
             });
         }
     } else {
         document.getElementById('contactModalLabel').textContent = 'Add Contact';
     }
-
     new bootstrap.Modal(document.getElementById('contactModal')).show();
 }
 
 function resetForm() {
-    document.getElementById('contactForm').reset();
-    document.getElementById('editingIndex').value = '';
-    document.getElementById('is_active').checked = true;
-    document.getElementById('customFieldsContainer').innerHTML = '';
+    if(document.getElementById('contactForm')) {
+        document.getElementById('contactForm').reset();
+        document.getElementById('editingIndex').value = '';
+        document.getElementById('is_active').checked = true;
+        document.getElementById('customFieldsContainer').innerHTML = '';
+    }
 }
-
-// --- UI HELPERS & FILTERS ---
 
 function filterContacts() {
     const query = document.getElementById('searchInput').value.toLowerCase();
-    const filteredContacts = contacts.filter(c =>
-        c.name.toLowerCase().includes(query) ||
-        c.phone.includes(query) ||
-        (c.email && c.email.toLowerCase().includes(query))
-    );
+    const filteredContacts = contacts.filter(c => c.name.toLowerCase().includes(query) || c.phone.includes(query) || (c.email && c.email.toLowerCase().includes(query)));
     renderContacts(filteredContacts);
 }
 
@@ -210,107 +241,110 @@ function populateCategoriesDropdown() {
 function populateCustomFieldsForm() {
     const container = document.getElementById('customFieldsContainer');
     container.innerHTML = customFieldDefs.map(field => `
-        <div class="mb-3">
-            <label class="form-label">${field.field_name}</label>
-            <input type="${field.field_type === 'DATE' ? 'date' : 'text'}" id="custom_${field.id}" class="form-control" />
-        </div>
+        <div class="mb-3"><label class="form-label">${field.field_name}</label>
+        <input type="${field.field_type === 'DATE' ? 'date' : 'text'}" id="custom_${field.id}" class="form-control" /></div>
     `).join('');
 }
 
-
 // --- AUTHENTICATION ---
+function handleLogin(e) {
+    e.preventDefault();
+    const username = document.getElementById('username').value;
+    const password = document.getElementById('password').value;
+    const user = DB.exec('SELECT * FROM users WHERE username = ? AND password = ?', [username, password]);
 
-async function logout() {
-    await fetchWithAuth('/logout', { method: 'POST' });
-    window.location.href = '/login.html';
-}
-
-// Wrapper for fetch to handle auth errors
-async function fetchWithAuth(url, options = {}) {
-    const response = await fetch(`http://localhost:3000${url}`, options);
-    if (response.status === 401) {
-        // Unauthorized, redirect to login
-        window.location.href = '/login.html';
-        throw new Error('Unauthorized');
+    if (user.length > 0) {
+        sessionStorage.setItem('isLoggedIn', 'true');
+        window.location.href = 'index.html';
+    } else {
+        document.getElementById('errorMessage').textContent = 'Invalid username or password.';
     }
-    return response;
 }
 
-// --- New Feature Implementations ---
+function logout() {
+    sessionStorage.removeItem('isLoggedIn');
+    window.location.href = 'login.html';
+}
 
-// QR Code
+// --- QR CODE & DB MANAGEMENT ---
 async function generateQRCode() {
   const qrCodeDiv = document.getElementById('qrCode');
   qrCodeDiv.innerHTML = 'Generating...';
-  // The backend endpoint now directly serves the .vcf file
-  // We will generate a QR code that links to this endpoint.
-  const url = `http://localhost:3000/qr-code-vcf`;
+  const activeContacts = DB.exec('SELECT * FROM contacts WHERE is_active = 1');
+  if (activeContacts.length === 0) {
+      qrCodeDiv.innerHTML = 'No active contacts to generate a QR code for.';
+      return;
+  }
+  const vcf = activeContacts.map(c => `BEGIN:VCARD
+VERSION:3.0
+UID:uid-${c.phone}-${c.id}
+FN:${c.name}
+TEL:${c.phone}
+${c.email ? `EMAIL:${c.email}` : ""}
+${c.address ? `ADR:;;${c.address};;;;` : ""}
+${c.birthday ? `BDAY:${c.birthday}` : ""}
+END:VCARD`).join("\n\n");
+  const blob = new Blob([vcf], { type: "text/vcard" });
+  const url = URL.createObjectURL(blob);
   const qrApiUrl = `https://chart.googleapis.com/chart?cht=qr&chs=250x250&chl=${encodeURIComponent(url)}`;
   qrCodeDiv.innerHTML = `<img src="${qrApiUrl}" alt="QR Code for All Contacts">`;
-  // Add a helpful link to download directly
   const link = document.createElement('a');
   link.href = url;
   link.textContent = 'Download .vcf file';
+  link.download = "contacts.vcf";
   link.className = 'btn btn-link';
   qrCodeDiv.appendChild(link);
 }
 
-// Bulk Actions
-async function handleBulkAction() {
-    const selectedIds = Array.from(document.querySelectorAll('.contact-select:checked')).map(cb => cb.dataset.contactId);
-    if (selectedIds.length === 0) return alert('Please select contacts first.');
-
-    const action = document.getElementById('bulkActionSelect').value;
-    if (!action) return alert('Please select an action.');
-
-    let body = { contactIds: selectedIds };
-    if (action === 'add_category') {
-        const categoryId = document.getElementById('bulkCategorySelect').value;
-        if (!categoryId) return alert('Please select a category for the bulk action.');
-        body.action = 'add_category';
-        body.categoryId = categoryId;
-    } else {
-        body.action = action; // 'archive' or 'unarchive'
-    }
-
-    const response = await fetchWithAuth('/contacts/bulk-update', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body)
-    });
-
-    if (response.ok) {
-        alert('Bulk action successful!');
-        loadInitialData();
-    } else {
-        alert('Bulk action failed.');
+async function handleDbImport(event) {
+    const file = event.target.files[0];
+    if (!file) return;
+    try {
+        await DB.importDb(file);
+        alert('Database imported successfully! The application will now reload.');
+        window.location.reload();
+    } catch (err) {
+        console.error(err);
     }
 }
 
-// Populate category dropdown for bulk actions
+// --- BULK ACTIONS ---
+function handleBulkAction() {
+    const selectedIds = Array.from(document.querySelectorAll('.contact-select:checked')).map(cb => cb.dataset.contactId);
+    if (selectedIds.length === 0) return alert('Please select contacts first.');
+    const action = document.getElementById('bulkActionSelect').value;
+    if (!action) return alert('Please select an action.');
+    const placeholders = selectedIds.map(() => '?').join(',');
+    let sql;
+    switch (action) {
+        case 'archive':
+            sql = `UPDATE contacts SET is_active = 0 WHERE id IN (${placeholders})`;
+            DB.run(sql, selectedIds);
+            break;
+        case 'unarchive':
+            sql = `UPDATE contacts SET is_active = 1 WHERE id IN (${placeholders})`;
+            DB.run(sql, selectedIds);
+            break;
+        case 'add_category':
+            const categoryId = document.getElementById('bulkCategorySelect').value;
+            if (!categoryId) return alert('Please select a category for the bulk action.');
+            sql = 'INSERT OR IGNORE INTO contact_categories (contact_id, category_id) VALUES (?, ?)';
+            selectedIds.forEach(contactId => DB.run(sql, [contactId, categoryId]));
+            break;
+        default: return alert('Invalid bulk action.');
+    }
+    alert('Bulk action successful!');
+    loadInitialData();
+}
+
 function populateCategoryFilter() {
     const select = document.getElementById('bulkCategorySelect');
+    if(!select) return;
     select.innerHTML = categories.map(c => `<option value="${c.id}">${c.name}</option>`).join('');
 }
 
 // --- CATEGORY & CUSTOM FIELD MANAGEMENT ---
-
-document.addEventListener('DOMContentLoaded', () => {
-    // ... existing listeners
-
-    // Management Modals
-    const categoriesModal = document.getElementById('categoriesModal');
-    categoriesModal.addEventListener('show.bs.modal', renderCategoryList);
-    document.getElementById('addCategoryForm').addEventListener('submit', addCategory);
-
-    const customFieldsModal = document.getElementById('customFieldsModal');
-    customFieldsModal.addEventListener('show.bs.modal', renderCustomFieldList);
-    document.getElementById('addCustomFieldForm').addEventListener('submit', addCustomField);
-});
-
-
-// Category Management
-async function renderCategoryList() {
+function renderCategoryList() {
     const list = document.getElementById('categoryList');
     list.innerHTML = categories.map(c => `
         <li class="list-group-item d-flex justify-content-between align-items-center">
@@ -320,43 +354,32 @@ async function renderCategoryList() {
     `).join('');
 }
 
-async function addCategory(e) {
+function addCategory(e) {
     e.preventDefault();
     const name = document.getElementById('newCategoryName').value.trim();
     if (!name) return;
-
-    const response = await fetchWithAuth('/categories', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name })
-    });
-
-    if (response.ok) {
+    const result = DB.run('INSERT INTO categories (name) VALUES (?)', [name]);
+    if (result.success) {
         document.getElementById('newCategoryName').value = '';
-        categories.push(await response.json());
+        categories = DB.exec('SELECT * FROM categories ORDER BY name');
         renderCategoryList();
-        populateCategoryFilter(); // Update bulk action dropdown
+        populateCategoryFilter();
     } else {
         alert('Failed to add category. It might already exist.');
     }
 }
 
-async function deleteCategory(id) {
+function deleteCategory(id) {
     if (confirm('Are you sure you want to delete this category? This will remove it from all contacts.')) {
-        const response = await fetchWithAuth(`/categories/${id}`, { method: 'DELETE' });
-        if (response.ok) {
-            categories = categories.filter(c => c.id !== id);
-            renderCategoryList();
-            populateCategoryFilter();
-            loadInitialData(); // Reload contacts to reflect category changes
-        } else {
-            alert('Failed to delete category.');
-        }
+        DB.run('DELETE FROM categories WHERE id = ?', [id]);
+        categories = DB.exec('SELECT * FROM categories ORDER BY name');
+        renderCategoryList();
+        populateCategoryFilter();
+        loadInitialData();
     }
 }
 
-// Custom Field Management
-async function renderCustomFieldList() {
+function renderCustomFieldList() {
     const list = document.getElementById('customFieldList');
     list.innerHTML = customFieldDefs.map(f => `
         <li class="list-group-item d-flex justify-content-between align-items-center">
@@ -366,35 +389,25 @@ async function renderCustomFieldList() {
     `).join('');
 }
 
-async function addCustomField(e) {
+function addCustomField(e) {
     e.preventDefault();
     const name = document.getElementById('newCustomFieldName').value.trim();
     if (!name) return;
-
-    const response = await fetchWithAuth('/custom-fields', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ field_name: name })
-    });
-
-    if (response.ok) {
+    const result = DB.run('INSERT INTO custom_fields_definitions (field_name) VALUES (?)', [name]);
+    if (result.success) {
         document.getElementById('newCustomFieldName').value = '';
-        customFieldDefs.push(await response.json());
+        customFieldDefs = DB.exec('SELECT * FROM custom_fields_definitions ORDER BY field_name');
         renderCustomFieldList();
     } else {
         alert('Failed to add custom field. It might already exist.');
     }
 }
 
-async function deleteCustomField(id) {
+function deleteCustomField(id) {
     if (confirm('Are you sure you want to delete this custom field? This will remove it and all its values from all contacts.')) {
-        const response = await fetchWithAuth(`/custom-fields/${id}`, { method: 'DELETE' });
-        if (response.ok) {
-            customFieldDefs = customFieldDefs.filter(f => f.id !== id);
-            renderCustomFieldList();
-            loadInitialData(); // Reload contacts to reflect field changes
-        } else {
-            alert('Failed to delete custom field.');
-        }
+        DB.run('DELETE FROM custom_fields_definitions WHERE id = ?', [id]);
+        customFieldDefs = DB.exec('SELECT * FROM custom_fields_definitions ORDER BY field_name');
+        renderCustomFieldList();
+        loadInitialData();
     }
 }

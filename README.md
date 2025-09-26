@@ -1,30 +1,35 @@
+# 📇 HR Contact Manager
 
-# 📇 Contact Manager
+A powerful, private, and offline-first contact management web app designed for HR departments. It runs entirely in your browser and uses an in-browser SQLite database to store all your data securely on your machine.
 
-A modern, browser-based contact management web app that lets you:
+**Key Features:**
+- **🔒 Secure & Private:** No data ever leaves your computer. Everything is stored and processed locally.
+- **💾 Persistent Data:** Save your entire contact database to a single file and load it back anytime.
+- **👤 User Login:** Protects access to the contact list with a simple login system.
+- **🏷️ Dynamic Categories:** Create and manage custom categories (e.g., "Emergency," "HOD," "Manager") and assign contacts to multiple categories.
+- **✨ Custom Fields:** Add custom fields to your contacts to store any information you need (e.g., "Department," "Job Title," "Start Date").
+- **📦 Bulk Actions:** Select multiple contacts to archive, un-archive, or assign to a category all at once.
+- **📱 QR Code Sharing:** Instantly generate a QR code that contains the contact details of all active employees in a downloadable `.vcf` file.
 
-- ✅ Upload contacts via VCF, Excel, or CSV
-- ✨ Add/Edit/Delete contacts via a clean modal form
-- 🔍 Search contacts instantly
-- 📤 Export to `.vcf`, `.xlsx`, and `.ics` formats
-- 📱 Generate QR codes for shared VCF links
-- 🎂 Export birthday calendars to `.ics` files
-
-
-
-- 📇 This web app can be used to manage emergency contact list that need to be maintained on a regular basis to ensure good internal communication.
-- Try it [here](https://contact-list-updater.vercel.app/)
 ---
 
 ## 🚀 How to Use
 
-1. **Clone or download the files** into a local folder:
-   - `index.html`
-   - `app.js`
+This application runs entirely in your browser. No server or internet connection is required after the initial load.
 
-2. **Open `index.html`** in any modern browser (Chrome, Edge, Firefox).
+1.  **Open `login.html`** in any modern browser (Chrome, Edge, Firefox).
 
-3. Start managing your contacts!
+2.  **Log In:**
+    *   For the very first use, log in with the default credentials:
+        *   **Username:** `admin`
+        *   **Password:** `password`
+
+3.  **IMPORTANT: How to Save Your Work**
+    *   The application stores data in your browser's memory. To save your contacts permanently, you **must** export the database.
+    *   **To Save:** Click the **"Export Database"** button on the main page. This will download a `contacts_database.db` file to your computer. Keep this file safe!
+    *   **To Load:** The next time you use the app, click the **"Import and Initialize"** button on the `login.html` page and select your saved `.db` file. You can then log in and all your data will be there.
+
+4.  **Manage Contacts:** Once logged in, you can add, edit, archive, and manage your contacts, categories, and custom fields.
 
 ---
 
@@ -33,55 +38,22 @@ A modern, browser-based contact management web app that lets you:
 ```bash
 📂 your-folder/
 │
-├── index.html         # Main UI - Bootstrap styled, mobile-friendly
-├── app.js             # All logic for upload, editing, exporting
+├── login.html         # Login page
+├── index.html         # Main application UI
+├── app.js             # Core application logic and UI interactions
+├── db-handler.js      # Manages the in-browser SQLite database
 └── README.md          # This file
 ```
 
 ---
 
-## 📥 Upload Options
-
-- **.vcf** (vCard 3.0): standard digital contact format
-- **.xlsx** or **.csv**:
-  - Columns: `Name`, `Phone`, `Email`, `Address`, `Birthday`
-  - Example:
-
-    | Name        | Phone       | Email              | Address          | Birthday   |
-    |-------------|-------------|--------------------|------------------|------------|
-    | Jane Doe    | 5551234567  | jane@example.com   | 123 Main St      | 1990-03-21 |
-
----
-
-## ✨ Features
-
-| Feature              | Description                                               |
-|----------------------|-----------------------------------------------------------|
-| 📥 File Upload        | Import contacts from `.vcf`, `.xlsx`, or `.csv`           |
-| 🔍 Live Search        | Instantly filter contacts by name, phone, or email        |
-| ➕ Modal Add/Edit     | Clean modal UI with validation                            |
-| 📤 Export Options     | Export to VCF, Excel, or iCalendar birthday format        |
-| 📅 Birthday Calendar  | One-click `.ics` file for importing birthdays to Outlook  |
-| 📱 QR Code Generator  | Generate QR code to share hosted `.vcf` link              |
-
----
-
 ## 🛠 Dependencies
 
-All loaded from CDN, no backend required:
+All dependencies are loaded from a CDN, requiring no local installation.
 
-- [Bootstrap 5](https://getbootstrap.com/)
-- [SheetJS (xlsx)](https://github.com/SheetJS/sheetjs)
-- [Google Chart API](https://developers.google.com/chart) for QR code
-
----
-
-## 🧪 Future Improvements
-
-- 🔄 Drag-and-drop upload support
-- ☁️ Cloud sync with Google Drive / OneDrive
-- 🌙 Dark mode toggle
-- 📲 PWA (mobile installable)
+- [Bootstrap 5](https://getbootstrap.com/): For the user interface.
+- [sql.js](https://github.com/sql-js/sql.js): For running SQLite in the browser.
+- [Google Chart API](https://developers.google.com/chart): For generating QR codes.
 
 ---
 

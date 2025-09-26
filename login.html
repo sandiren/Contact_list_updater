@@ -9,12 +9,13 @@
     body { background: #f3f6f9; display: flex; align-items: center; justify-content: center; height: 100vh; }
     .login-card { max-width: 400px; width: 100%; padding: 30px; background: #fff; border-radius: 12px; box-shadow: 0 10px 25px rgba(0,0,0,0.1); }
     .login-card h1 { text-align: center; margin-bottom: 30px; }
-    .error-message { color: red; text-align: center; margin-bottom: 15px; }
+    .error-message { color: red; text-align: center; margin-bottom: 15px; min-height: 1.2em; }
   </style>
 </head>
 <body>
   <div class="login-card">
     <h1>📇 Contact Manager Login</h1>
+    <p class="text-center text-muted">First time? Use admin/password. Don't forget to import a database file if you have one!</p>
     <div id="errorMessage" class="error-message"></div>
     <form id="loginForm">
       <div class="mb-3">
@@ -29,32 +30,52 @@
         <button type="submit" class="btn btn-primary">Login</button>
       </div>
     </form>
+    <hr>
+    <div class="text-center">
+        <h6>Or Load a Database</h6>
+        <label class="btn btn-outline-success mt-2">
+            Import and Initialize <input type="file" id="importDbInput" accept=".db,.sqlite" hidden>
+        </label>
+    </div>
   </div>
 
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.10.3/sql-wasm.js"></script>
+  <script src="db-handler.js"></script>
   <script>
-    document.getElementById('loginForm').addEventListener('submit', async function(e) {
-      e.preventDefault();
-      const username = document.getElementById('username').value;
-      const password = document.getElementById('password').value;
-      const errorMessage = document.getElementById('errorMessage');
-      errorMessage.textContent = '';
+    // Simplified loader for the login page
+    document.addEventListener('DOMContentLoaded', async () => {
+        if (sessionStorage.getItem('isLoggedIn') === 'true') {
+            window.location.href = 'index.html';
+            return;
+        }
 
-      try {
-        const response = await fetch('http://localhost:3000/login', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ username, password })
+        await DB.init(); // Initialize a blank DB for login check
+
+        document.getElementById('loginForm').addEventListener('submit', (e) => {
+            e.preventDefault();
+            const username = document.getElementById('username').value;
+            const password = document.getElementById('password').value;
+            const user = DB.exec('SELECT * FROM users WHERE username = ? AND password = ?', [username, password]);
+
+            if (user.length > 0) {
+                sessionStorage.setItem('isLoggedIn', 'true');
+                window.location.href = 'index.html';
+            } else {
+                document.getElementById('errorMessage').textContent = 'Invalid username or password.';
+            }
         });
 
-        if (response.ok) {
-          window.location.href = '/index.html'; // Redirect to the main app
-        } else {
-          const data = await response.json();
-          errorMessage.textContent = data.message || 'Login failed.';
-        }
-      } catch (error) {
-        errorMessage.textContent = 'An error occurred. Is the server running?';
-      }
+        document.getElementById('importDbInput').addEventListener('change', async (event) => {
+            const file = event.target.files[0];
+            if (!file) return;
+            try {
+                await DB.importDb(file);
+                // After importing, we assume the user might want to log in with credentials from that DB
+                document.getElementById('errorMessage').textContent = 'Database loaded. Please log in.';
+            } catch (err) {
+                document.getElementById('errorMessage').textContent = 'Failed to load database.';
+            }
+        });
     });
   </script>
 </body>
