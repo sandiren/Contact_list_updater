@@ -21,7 +21,10 @@
   <div class="container">
     <div class="top-bar">
       <h1>📇 Contact Manager</h1>
-      <button id="logoutButton" class="btn btn-outline-danger">Logout</button>
+      <div>
+        <button class="btn btn-secondary" data-bs-toggle="modal" data-bs-target="#changePasswordModal">Change Password</button>
+        <button id="logoutButton" class="btn btn-danger">Logout</button>
+      </div>
     </div>
 
     <!-- Controls -->
@@ -52,6 +55,7 @@
     <!-- Bulk Actions -->
     <div class="card p-3 mb-4">
         <h4>Bulk Actions</h4>
+        <p class="text-muted small">Select contacts using the checkboxes on each card, then choose an action to apply to all of them.</p>
         <div class="bulk-actions">
             <select id="bulkActionSelect" class="form-select">
                 <option value="">Select Action...</option>
@@ -59,8 +63,8 @@
                 <option value="unarchive">Un-archive Selected</option>
                 <option value="add_category">Add Category to Selected</option>
             </select>
-            <select id="bulkCategorySelect" class="form-select"></select>
-            <button class="btn btn-warning" onclick="handleBulkAction()">Apply</button>
+            <select id="bulkCategorySelect" class="form-select" style="display: none;"></select>
+            <button id="bulkApplyBtn" class="btn btn-warning">Apply</button>
         </div>
     </div>
 
@@ -148,6 +152,34 @@
           <ul id="categoryList" class="list-group">
             <!-- Categories will be loaded here by JavaScript -->
           </ul>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Change Password Modal -->
+  <div class="modal fade" id="changePasswordModal" tabindex="-1" aria-labelledby="changePasswordModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title" id="changePasswordModalLabel">Change Password</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <form id="changePasswordForm">
+            <div class="mb-3">
+              <label for="newPassword" class="form-label">New Password</label>
+              <input type="password" class="form-control" id="newPassword" required>
+            </div>
+            <div class="mb-3">
+              <label for="confirmPassword" class="form-label">Confirm New Password</label>
+              <input type="password" class="form-control" id="confirmPassword" required>
+            </div>
+            <div class="modal-footer">
+              <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+              <button type="submit" class="btn btn-primary">Save Changes</button>
+            </div>
+          </form>
         </div>
       </div>
     </div>

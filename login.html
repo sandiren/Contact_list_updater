@@ -15,7 +15,7 @@
 <body>
   <div class="login-card">
     <h1>📇 Contact Manager Login</h1>
-    <p class="text-center text-muted">First time? Use admin/password. Don't forget to import a database file if you have one!</p>
+    <p class="text-center text-muted">First time? Use admin/password. Or import a database file.</p>
     <div id="errorMessage" class="error-message"></div>
     <form id="loginForm">
       <div class="mb-3">
@@ -42,14 +42,13 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.10.3/sql-wasm.js"></script>
   <script src="db-handler.js"></script>
   <script>
-    // Simplified loader for the login page
     document.addEventListener('DOMContentLoaded', async () => {
         if (sessionStorage.getItem('isLoggedIn') === 'true') {
             window.location.href = 'index.html';
             return;
         }
 
-        await DB.init(); // Initialize a blank DB for login check
+        await DB.init();
 
         document.getElementById('loginForm').addEventListener('submit', (e) => {
             e.preventDefault();
@@ -70,7 +69,6 @@
             if (!file) return;
             try {
                 await DB.importDb(file);
-                // After importing, we assume the user might want to log in with credentials from that DB
                 document.getElementById('errorMessage').textContent = 'Database loaded. Please log in.';
             } catch (err) {
                 document.getElementById('errorMessage').textContent = 'Failed to load database.';

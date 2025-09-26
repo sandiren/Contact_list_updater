@@ -2,38 +2,27 @@
 let contacts = [];
 let categories = [];
 let customFieldDefs = [];
-let currentFilter = { active: true }; // Default to show active contacts
+let currentFilter = { active: true };
 
-// Check login status on page load
 document.addEventListener('DOMContentLoaded', async () => {
-    // Check for login status
     if (!sessionStorage.getItem('isLoggedIn')) {
-        // If not on login page, redirect
         if (!window.location.pathname.endsWith('login.html')) {
             window.location.href = 'login.html';
         }
-        // If on login page, initialize DB for login check
-        else {
-            await DB.init();
-            document.getElementById('loginForm').addEventListener('submit', handleLogin);
-        }
-        return; // Don't initialize main app if not logged in
+        return;
     }
 
-    // If logged in but on login page, redirect to app
     if (window.location.pathname.endsWith('login.html')) {
         window.location.href = 'index.html';
         return;
     }
 
-    // Initialize the database and load data
     await DB.init();
     await loadInitialData();
     setupUIEventListeners();
 });
 
 async function loadInitialData() {
-    // Fetch all required data from the local DB
     const isActiveFilter = currentFilter.active ? 1 : 0;
     const contactsSql = `
         SELECT c.*, GROUP_CONCAT(cat.name) as categories
@@ -41,14 +30,12 @@ async function loadInitialData() {
         LEFT JOIN contact_categories cc ON c.id = cc.contact_id
         LEFT JOIN categories cat ON cc.category_id = cat.id
         WHERE c.is_active = ?
-        GROUP BY c.id
+        GROUP BY c.id ORDER BY c.name
     `;
     contacts = DB.exec(contactsSql, [isActiveFilter]);
-
     categories = DB.exec('SELECT * FROM categories ORDER BY name');
     customFieldDefs = DB.exec('SELECT * FROM custom_fields_definitions ORDER BY field_name');
 
-    // For each contact, fetch its custom fields
     contacts.forEach(contact => {
         const customFieldsSql = `
             SELECT cfd.field_name, cfv.value
@@ -68,7 +55,6 @@ async function loadInitialData() {
 }
 
 function setupUIEventListeners() {
-    // Main page listeners
     if(document.getElementById('searchInput')) {
         document.getElementById('searchInput').addEventListener('input', filterContacts);
         document.getElementById('logoutButton').addEventListener('click', logout);
@@ -76,27 +62,35 @@ function setupUIEventListeners() {
         document.getElementById('filterToggle').addEventListener('change', toggleActiveFilter);
         document.getElementById('exportDbBtn').addEventListener('click', () => DB.exportDb());
         document.getElementById('importDbInput').addEventListener('change', handleDbImport);
-
-        // Bulk Actions
         document.getElementById('bulkApplyBtn').addEventListener('click', handleBulkAction);
+        document.getElementById('bulkActionSelect').addEventListener('change', (e) => {
+            const categorySelect = document.getElementById('bulkCategorySelect');
+            categorySelect.style.display = e.target.value === 'add_category' ? 'block' : 'none';
+        });
 
         // Modals
         const categoriesModal = document.getElementById('categoriesModal');
-        categoriesModal.addEventListener('show.bs.modal', renderCategoryList);
-        document.getElementById('addCategoryForm').addEventListener('submit', addCategory);
+        if(categoriesModal) categoriesModal.addEventListener('show.bs.modal', renderCategoryList);
 
         const customFieldsModal = document.getElementById('customFieldsModal');
-        customFieldsModal.addEventListener('show.bs.modal', renderCustomFieldList);
-        document.getElementById('addCustomFieldForm').addEventListener('submit', addCustomField);
+        if(customFieldsModal) customFieldsModal.addEventListener('show.bs.modal', renderCustomFieldList);
+
+        const addCategoryForm = document.getElementById('addCategoryForm');
+        if(addCategoryForm) addCategoryForm.addEventListener('submit', addCategory);
+
+        const addCustomFieldForm = document.getElementById('addCustomFieldForm');
+        if(addCustomFieldForm) addCustomFieldForm.addEventListener('submit', addCustomField);
+
+        const changePasswordForm = document.getElementById('changePasswordForm');
+        if(changePasswordForm) changePasswordForm.addEventListener('submit', handleChangePassword);
     }
 
-    // Add/Edit Contact Form
     if (document.getElementById('contactForm')) {
        document.getElementById('contactForm').addEventListener('submit', handleSaveContact);
+       document.getElementById('contactModal').addEventListener('hidden.bs.modal', resetForm);
     }
 }
 
-// --- RENDERING ---
 function renderContacts(data = contacts) {
     const grid = document.getElementById('contactsGrid');
     if (!grid) return;
@@ -127,7 +121,6 @@ function renderCustomFields(fields) {
     return html;
 }
 
-// --- DATA MANIPULATION ---
 function handleSaveContact(e) {
     e.preventDefault();
     const editingId = document.getElementById('editingIndex').value;
@@ -147,9 +140,13 @@ function handleSaveContact(e) {
         DB.run(sql, [contactData.name, contactData.phone, contactData.email, contactData.address, contactData.birthday, contactData.is_active, editingId]);
     } else {
         const sql = 'INSERT INTO contacts (name, phone, email, address, birthday, is_active) VALUES (?, ?, ?, ?, ?, ?)';
-        DB.run(sql, [contactData.name, contactData.phone, contactData.email, contactData.address, contactData.birthday, contactData.is_active]);
-        const newContact = DB.exec('SELECT last_insert_rowid() as id');
-        contactId = newContact[0].id;
+        const result = DB.insert(sql, [contactData.name, contactData.phone, contactData.email, contactData.address, contactData.birthday, contactData.is_active]);
+        if (result.success) {
+            contactId = result.lastId;
+        } else {
+            alert("Error: Could not save contact.");
+            return;
+        }
     }
 
     DB.run('DELETE FROM contact_categories WHERE contact_id = ?', [contactId]);
@@ -177,7 +174,6 @@ function deleteContact(id) {
     }
 }
 
-// --- MODAL & UI HELPERS ---
 function openContactModal(contactId = null) {
     resetForm();
     populateCategoriesDropdown();
@@ -246,27 +242,33 @@ function populateCustomFieldsForm() {
     `).join('');
 }
 
-// --- AUTHENTICATION ---
-function handleLogin(e) {
-    e.preventDefault();
-    const username = document.getElementById('username').value;
-    const password = document.getElementById('password').value;
-    const user = DB.exec('SELECT * FROM users WHERE username = ? AND password = ?', [username, password]);
-
-    if (user.length > 0) {
-        sessionStorage.setItem('isLoggedIn', 'true');
-        window.location.href = 'index.html';
-    } else {
-        document.getElementById('errorMessage').textContent = 'Invalid username or password.';
-    }
-}
-
 function logout() {
     sessionStorage.removeItem('isLoggedIn');
+    sessionStorage.removeItem('db'); // Clear the database on logout
     window.location.href = 'login.html';
 }
 
-// --- QR CODE & DB MANAGEMENT ---
+function handleChangePassword(e) {
+    e.preventDefault();
+    const newPassword = document.getElementById('newPassword').value;
+    const confirmPassword = document.getElementById('confirmPassword').value;
+    if (newPassword !== confirmPassword) {
+        alert("Passwords do not match.");
+        return;
+    }
+    if (newPassword.length < 4) {
+        alert("Password must be at least 4 characters long.");
+        return;
+    }
+    const result = DB.run('UPDATE users SET password = ? WHERE id = 1', [newPassword]); // Assuming user id 1 is admin
+    if (result.success) {
+        alert("Password changed successfully.");
+        bootstrap.Modal.getInstance(document.getElementById('changePasswordModal')).hide();
+    } else {
+        alert("Failed to change password.");
+    }
+}
+
 async function generateQRCode() {
   const qrCodeDiv = document.getElementById('qrCode');
   qrCodeDiv.innerHTML = 'Generating...';
@@ -308,7 +310,6 @@ async function handleDbImport(event) {
     }
 }
 
-// --- BULK ACTIONS ---
 function handleBulkAction() {
     const selectedIds = Array.from(document.querySelectorAll('.contact-select:checked')).map(cb => cb.dataset.contactId);
     if (selectedIds.length === 0) return alert('Please select contacts first.');
@@ -333,7 +334,6 @@ function handleBulkAction() {
             break;
         default: return alert('Invalid bulk action.');
     }
-    alert('Bulk action successful!');
     loadInitialData();
 }
 
@@ -343,7 +343,6 @@ function populateCategoryFilter() {
     select.innerHTML = categories.map(c => `<option value="${c.id}">${c.name}</option>`).join('');
 }
 
-// --- CATEGORY & CUSTOM FIELD MANAGEMENT ---
 function renderCategoryList() {
     const list = document.getElementById('categoryList');
     list.innerHTML = categories.map(c => `
@@ -358,7 +357,7 @@ function addCategory(e) {
     e.preventDefault();
     const name = document.getElementById('newCategoryName').value.trim();
     if (!name) return;
-    const result = DB.run('INSERT INTO categories (name) VALUES (?)', [name]);
+    const result = DB.insert('INSERT OR IGNORE INTO categories (name) VALUES (?)', [name]);
     if (result.success) {
         document.getElementById('newCategoryName').value = '';
         categories = DB.exec('SELECT * FROM categories ORDER BY name');
@@ -372,9 +371,6 @@ function addCategory(e) {
 function deleteCategory(id) {
     if (confirm('Are you sure you want to delete this category? This will remove it from all contacts.')) {
         DB.run('DELETE FROM categories WHERE id = ?', [id]);
-        categories = DB.exec('SELECT * FROM categories ORDER BY name');
-        renderCategoryList();
-        populateCategoryFilter();
         loadInitialData();
     }
 }
@@ -393,7 +389,7 @@ function addCustomField(e) {
     e.preventDefault();
     const name = document.getElementById('newCustomFieldName').value.trim();
     if (!name) return;
-    const result = DB.run('INSERT INTO custom_fields_definitions (field_name) VALUES (?)', [name]);
+    const result = DB.insert('INSERT OR IGNORE INTO custom_fields_definitions (field_name) VALUES (?)', [name]);
     if (result.success) {
         document.getElementById('newCustomFieldName').value = '';
         customFieldDefs = DB.exec('SELECT * FROM custom_fields_definitions ORDER BY field_name');
@@ -406,8 +402,6 @@ function addCustomField(e) {
 function deleteCustomField(id) {
     if (confirm('Are you sure you want to delete this custom field? This will remove it and all its values from all contacts.')) {
         DB.run('DELETE FROM custom_fields_definitions WHERE id = ?', [id]);
-        customFieldDefs = DB.exec('SELECT * FROM custom_fields_definitions ORDER BY field_name');
-        renderCustomFieldList();
         loadInitialData();
     }
 }
