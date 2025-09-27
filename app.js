@@ -372,8 +372,11 @@ function populateCategoryFilter() {
 async function generateQRCode() {
   const qrCodeDiv = document.getElementById('qrCode');
   qrCodeDiv.innerHTML = 'Generating...';
-  const { data: activeContacts } = await _supabase.from('contacts').select('*').eq('is_active', true);
+  const { data: activeContacts, error: contactsError } = await _supabase.from('contacts').select('*').eq('is_active', true);
 
+  if (contactsError) {
+      return showNotification(`Error fetching contacts: ${contactsError.message}`, 'danger');
+  }
   if (!activeContacts || activeContacts.length === 0) {
     qrCodeDiv.innerHTML = 'No active contacts to generate a QR code for.';
     return;
@@ -389,33 +392,52 @@ ${c.birthday ? `BDAY:${c.birthday.replace(/-/g, '')}` : ''}
 END:VCARD`).join('\n\n');
 
   const blob = new Blob([vcf], { type: 'text/vcard;charset=utf-8' });
+  const fileName = `contacts-${Date.now()}.vcf`;
 
-  // Convert the blob to a Data URL
-  const reader = new FileReader();
-  reader.onloadend = function() {
-    const dataUrl = reader.result;
+  // Upload the VCF file to Supabase Storage
+  const { data: uploadData, error: uploadError } = await _supabase.storage
+    .from('vcf-files')
+    .upload(fileName, blob, {
+      cacheControl: '3600',
+      upsert: false
+    });
 
-    try {
-      const typeNumber = 0; // auto-detect
-      const errorCorrectionLevel = 'L';
-      const qr = qrcode(typeNumber, errorCorrectionLevel);
-      qr.addData(dataUrl); // Encode the Data URL, not the raw VCF string
-      qr.make();
+  if (uploadError) {
+    qrCodeDiv.innerHTML = 'Error uploading contact file.';
+    return showNotification(`Storage Error: ${uploadError.message}`, 'danger');
+  }
 
-      qrCodeDiv.innerHTML = qr.createImgTag(4, 8);
+  // Get the public URL of the uploaded file
+  const { data: urlData } = _supabase.storage
+    .from('vcf-files')
+    .getPublicUrl(fileName);
 
-      const link = document.createElement('a');
-      link.href = dataUrl;
-      link.textContent = 'Download .vcf file';
-      link.download = 'contacts.vcf';
-      link.className = 'btn btn-link d-block mt-2';
-      qrCodeDiv.appendChild(link);
+  if (!urlData || !urlData.publicUrl) {
+      qrCodeDiv.innerHTML = 'Error getting public URL for the contact file.';
+      return;
+  }
 
-    } catch (err) {
-      qrCodeDiv.innerHTML = 'Error generating QR code. The contact list may be too large.';
-    }
-  };
-  reader.readAsDataURL(blob);
+  const publicUrl = urlData.publicUrl;
+
+  try {
+    const typeNumber = 0;
+    const errorCorrectionLevel = 'L';
+    const qr = qrcode(typeNumber, errorCorrectionLevel);
+    qr.addData(publicUrl);
+    qr.make();
+
+    qrCodeDiv.innerHTML = qr.createImgTag(4, 8);
+
+    const link = document.createElement('a');
+    link.href = publicUrl;
+    link.textContent = 'Download .vcf file';
+    link.download = 'contacts.vcf';
+    link.className = 'btn btn-link d-block mt-2';
+    qrCodeDiv.appendChild(link);
+
+  } catch (err) {
+    qrCodeDiv.innerHTML = 'Error generating QR code.';
+  }
 }
 
 // --- IMPORT / EXPORT ---
