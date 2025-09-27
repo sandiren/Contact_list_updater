@@ -1,0 +1,5 @@
+# Supabase credentials
+supabase-client.js
+
+# Node.js dependencies
+node_modules/

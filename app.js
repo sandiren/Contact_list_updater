@@ -1,3 +1,30 @@
+// --- UTILITIES ---
+
+function showNotification(message, type = 'success') {
+  const container = document.getElementById('notification-container');
+  const alertType = type === 'success' ? 'alert-success' : 'alert-danger';
+  const notification = document.createElement('div');
+  notification.className = `alert ${alertType} alert-dismissible fade show`;
+  notification.role = 'alert';
+  notification.innerHTML = `
+    ${message}
+    <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+  `;
+  container.appendChild(notification);
+
+  // Auto-dismiss after 5 seconds
+  setTimeout(() => {
+    // Use a try-catch block in case the element is already gone
+    try {
+      const bootstrapAlert = new bootstrap.Alert(notification);
+      bootstrapAlert.close();
+    } catch (e) {
+      // Ignore error if the element is already removed
+    }
+  }, 5000);
+}
+
+
 // --- AUTHENTICATION & PAGE SETUP ---
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -42,14 +69,14 @@ function setupAuthForms() {
 
   signUpForm.addEventListener('submit', async (e) => {
     e.preventDefault();
-    const { error } = await _supabase.auth.signUp({
+    const { data, error } = await _supabase.auth.signUp({
       email: document.getElementById('signUpEmail').value,
       password: document.getElementById('signUpPassword').value,
     });
     if (error) {
       document.getElementById('signUpErrorMessage').textContent = error.message;
     } else {
-      alert('Sign-up successful! Please check your email for a confirmation link.');
+      showNotification('Sign-up successful! Please check your email for a confirmation link.', 'success');
       signUpView.style.display = 'none';
       loginView.style.display = 'block';
     }
@@ -62,7 +89,6 @@ async function setupApp() {
     window.location.href = 'login.html';
   });
 
-  // Attach all other event listeners for the main app
   document.getElementById('searchInput').addEventListener('input', filterContacts);
   document.getElementById('addContactBtn').addEventListener('click', () => openContactModal());
   document.getElementById('filterToggle').addEventListener('change', loadInitialData);
@@ -76,6 +102,9 @@ async function setupApp() {
   document.getElementById('addCustomFieldForm').addEventListener('submit', addCustomField);
   document.getElementById('categoriesModal').addEventListener('show.bs.modal', renderCategoryList);
   document.getElementById('customFieldsModal').addEventListener('show.bs.modal', renderCustomFieldList);
+  document.getElementById('importExcelInput').addEventListener('change', handleExcelImport);
+  document.getElementById('exportVcfBtn').addEventListener('click', exportToVcf);
+  document.getElementById('exportExcelBtn').addEventListener('click', exportToExcel);
 
   loadInitialData();
 }
@@ -89,9 +118,13 @@ let customFieldDefs = [];
 async function loadInitialData() {
   const isActiveFilter = document.getElementById('filterToggle').checked;
 
-  // Fetch all data in parallel
-  const [{ data: contactsData }, { data: categoriesData }, { data: customFieldsData }] = await Promise.all([
-      _supabase.from('contacts').select('*, contact_categories(categories(*)), custom_fields_values(custom_fields_definitions(*), value)').eq('is_active', isActiveFilter).order('name'),
+  const { data: contactsData, error } = await _supabase.from('contacts').select('*, contact_categories(categories(*)), custom_fields_values(custom_fields_definitions(*), value)').eq('is_active', isActiveFilter).order('name');
+  if (error) {
+    showNotification('Error loading contacts.', 'danger');
+    return;
+  }
+
+  const [{ data: categoriesData }, { data: customFieldsData }] = await Promise.all([
       _supabase.from('categories').select('*').order('name'),
       _supabase.from('custom_fields_definitions').select('*').order('field_name')
   ]);
@@ -99,17 +132,14 @@ async function loadInitialData() {
   categories = categoriesData;
   customFieldDefs = customFieldsData;
 
-  // Process contacts to be easier to work with
-  contacts = contactsData.map(c => {
-      return {
-          ...c,
-          categories: c.contact_categories.map(cc => cc.categories),
-          custom_fields: c.custom_fields_values.reduce((acc, cfv) => {
-              acc[cfv.custom_fields_definitions.field_name] = cfv.value;
-              return acc;
-          }, {})
-      };
-  });
+  contacts = contactsData.map(c => ({
+      ...c,
+      categories: c.contact_categories.map(cc => cc.categories),
+      custom_fields: c.custom_fields_values.reduce((acc, cfv) => {
+          acc[cfv.custom_fields_definitions.field_name] = cfv.value;
+          return acc;
+      }, {})
+  }));
 
   renderContacts();
   populateCategoryFilter();
@@ -159,21 +189,16 @@ async function handleSaveContact(e) {
     is_active: document.getElementById('is_active').checked,
   };
 
-  // Upsert the contact
   const { data: savedContact, error } = await _supabase.from('contacts').upsert({ id: editingId || undefined, ...contactData }).select().single();
-  if (error) return alert(`Error saving contact: ${error.message}`);
+  if (error) return showNotification(`Error saving contact: ${error.message}`, 'danger');
 
-  // --- Handle categories ---
   const selectedCategoryIds = Array.from(document.getElementById('categories').selectedOptions).map(opt => opt.value);
-  // Delete existing category links
   await _supabase.from('contact_categories').delete().eq('contact_id', savedContact.id);
-  // Insert new ones
   if (selectedCategoryIds.length) {
       const categoryLinks = selectedCategoryIds.map(catId => ({ contact_id: savedContact.id, category_id: catId }));
       await _supabase.from('contact_categories').insert(categoryLinks);
   }
 
-  // --- Handle custom fields ---
   await _supabase.from('custom_fields_values').delete().eq('contact_id', savedContact.id);
   const customFieldValues = [];
   for (const field of customFieldDefs) {
@@ -186,6 +211,7 @@ async function handleSaveContact(e) {
       await _supabase.from('custom_fields_values').insert(customFieldValues);
   }
 
+  showNotification('Contact saved successfully!', 'success');
   bootstrap.Modal.getInstance(document.getElementById('contactModal')).hide();
   loadInitialData();
 }
@@ -193,6 +219,7 @@ async function handleSaveContact(e) {
 async function deleteContact(id) {
   if (confirm("Are you sure you want to delete this contact?")) {
     await _supabase.from('contacts').delete().eq('id', id);
+    showNotification('Contact deleted.', 'success');
     loadInitialData();
   }
 }
@@ -269,13 +296,15 @@ async function addCategory(e) {
   if (!name) return;
   await _supabase.from('categories').insert({ name });
   document.getElementById('newCategoryName').value = '';
+  showNotification('Category added.', 'success');
   renderCategoryList();
-  loadInitialData(); // To refresh dropdowns
+  loadInitialData();
 }
 
 async function deleteCategory(id) {
   if (confirm('Are you sure you want to delete this category?')) {
     await _supabase.from('categories').delete().eq('id', id);
+    showNotification('Category deleted.', 'success');
     renderCategoryList();
     loadInitialData();
   }
@@ -296,6 +325,7 @@ async function addCustomField(e) {
   if (!name) return;
   await _supabase.from('custom_fields_definitions').insert({ field_name: name });
   document.getElementById('newCustomFieldName').value = '';
+  showNotification('Custom field added.', 'success');
   renderCustomFieldList();
   loadInitialData();
 }
@@ -303,6 +333,7 @@ async function addCustomField(e) {
 async function deleteCustomField(id) {
   if (confirm('Are you sure you want to delete this custom field?')) {
     await _supabase.from('custom_fields_definitions').delete().eq('id', id);
+    showNotification('Custom field deleted.', 'success');
     renderCustomFieldList();
     loadInitialData();
   }
@@ -311,7 +342,7 @@ async function deleteCustomField(id) {
 // --- BULK ACTIONS & QR CODE ---
 async function handleBulkAction() {
     const selectedIds = Array.from(document.querySelectorAll('.contact-select:checked')).map(cb => cb.dataset.contactId);
-    if (selectedIds.length === 0) return alert('Please select contacts first.');
+    if (selectedIds.length === 0) return showNotification('Please select contacts first.', 'danger');
     const action = document.getElementById('bulkActionSelect').value;
 
     switch (action) {
@@ -323,12 +354,13 @@ async function handleBulkAction() {
             break;
         case 'add_category':
             const categoryId = document.getElementById('bulkCategorySelect').value;
-            if (!categoryId) return alert('Please select a category.');
+            if (!categoryId) return showNotification('Please select a category.', 'danger');
             const links = selectedIds.map(id => ({ contact_id: id, category_id: categoryId }));
             await _supabase.from('contact_categories').insert(links);
             break;
-        default: return alert('Invalid action.');
+        default: return showNotification('Invalid bulk action selected.', 'danger');
     }
+    showNotification('Bulk action completed successfully!', 'success');
     loadInitialData();
 }
 
@@ -357,17 +389,13 @@ ${c.birthday ? `BDAY:${c.birthday.replace(/-/g, '')}` : ''}
 END:VCARD`).join('\n\n');
 
   try {
-    // Use the qrcode-generator library
-    const typeNumber = 0; // 0 = auto-detect
+    const typeNumber = 0;
     const errorCorrectionLevel = 'L';
     const qr = qrcode(typeNumber, errorCorrectionLevel);
     qr.addData(vcf);
     qr.make();
+    qrCodeDiv.innerHTML = qr.createImgTag(4, 8);
 
-    // Create an image tag from the generated QR code
-    qrCodeDiv.innerHTML = qr.createImgTag(4, 8); // (cellSize, margin)
-
-    // Also provide a direct download link for the VCF data
     const blob = new Blob([vcf], { type: 'text/vcard;charset=utf-8' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
@@ -376,9 +404,114 @@ END:VCARD`).join('\n\n');
     link.download = 'contacts.vcf';
     link.className = 'btn btn-link d-block mt-2';
     qrCodeDiv.appendChild(link);
-
   } catch (err) {
       qrCodeDiv.innerHTML = 'Error generating QR code. The contact list may be too large.';
-      console.error(err);
   }
+}
+
+// --- IMPORT / EXPORT ---
+
+async function handleExcelImport(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+
+  const reader = new FileReader();
+  reader.onload = async (e) => {
+    try {
+      const data = new Uint8Array(e.target.result);
+      const workbook = XLSX.read(data, { type: 'array' });
+      const sheetName = workbook.SheetNames[0];
+      const worksheet = workbook.Sheets[sheetName];
+      const json = XLSX.utils.sheet_to_json(worksheet);
+
+      if (json.length === 0) return showNotification('The selected Excel file is empty.', 'danger');
+
+      const { data: existingContacts, error } = await _supabase.from('contacts').select('phone');
+      if (error) throw error;
+      const existingPhones = new Set(existingContacts.map(c => c.phone));
+
+      const newContacts = [];
+      for (const row of json) {
+        const lowerRow = Object.keys(row).reduce((acc, key) => { acc[key.toLowerCase()] = row[key]; return acc; }, {});
+        const phone = (lowerRow.phone || lowerRow['phone number'] || lowerRow.mobile || '').toString().trim();
+        if (!phone || existingPhones.has(phone)) continue;
+
+        newContacts.push({
+          name: lowerRow.name || lowerRow['full name'] || '',
+          phone: phone,
+          email: lowerRow.email || lowerRow['email address'] || '',
+          address: lowerRow.address || '',
+          birthday: lowerRow.birthday || '',
+        });
+        existingPhones.add(phone);
+      }
+
+      if (newContacts.length > 0) {
+        const { error: insertError } = await _supabase.from('contacts').insert(newContacts);
+        if (insertError) throw insertError;
+        showNotification(`${newContacts.length} new contacts were successfully imported!`, 'success');
+      } else {
+        showNotification('No new contacts were found to import.', 'success');
+      }
+
+      loadInitialData();
+    } catch (err) {
+      showNotification(`An error occurred during the import: ${err.message}`, 'danger');
+    } finally {
+      event.target.value = '';
+    }
+  };
+  reader.readAsArrayBuffer(file);
+}
+
+async function exportToVcf() {
+    const { data: contacts, error } = await _supabase.from('contacts').select('*');
+    if (error) return showNotification(`Error fetching contacts: ${error.message}`, 'danger');
+    if (!contacts || contacts.length === 0) return showNotification('No contacts to export.', 'danger');
+
+    const vcf = contacts.map(c => `BEGIN:VCARD
+VERSION:3.0
+FN:${c.name}
+TEL;TYPE=CELL:${c.phone}
+${c.email ? `EMAIL:${c.email}` : ''}
+${c.address ? `ADR;CHARSET=utf-8:;;${c.address};;;;` : ''}
+${c.birthday ? `BDAY:${c.birthday.replace(/-/g, '')}` : ''}
+END:VCARD`).join('\n\n');
+
+    const blob = new Blob([vcf], { type: 'text/vcard;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'contacts.vcf';
+    a.click();
+    URL.revokeObjectURL(url);
+}
+
+async function exportToExcel() {
+    const { data: contacts, error } = await _supabase.from('contacts').select('*, contact_categories(categories(name)), custom_fields_values(value, custom_fields_definitions(field_name))');
+    if (error) return showNotification(`Error fetching contacts: ${error.message}`, 'danger');
+    if (!contacts || contacts.length === 0) return showNotification('No contacts to export.', 'danger');
+
+    const dataForSheet = contacts.map(c => {
+        const contactRow = {
+            Name: c.name,
+            Phone: c.phone,
+            Email: c.email,
+            Address: c.address,
+            Birthday: c.birthday,
+            Is_Active: c.is_active,
+            Categories: c.contact_categories.map(cat => cat.categories.name).join(', '),
+        };
+
+        c.custom_fields_values.forEach(cfv => {
+            contactRow[cfv.custom_fields_definitions.field_name] = cfv.value;
+        });
+
+        return contactRow;
+    });
+
+    const worksheet = XLSX.utils.json_to_sheet(dataForSheet);
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, 'Contacts');
+    XLSX.writeFile(workbook, 'contacts_export.xlsx');
 }

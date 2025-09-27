@@ -1,0 +1,15 @@
+// IMPORTANT: DO NOT COMMIT THIS FILE WITH YOUR REAL CREDENTIALS
+// 1. Make a copy of this file and rename it to `supabase-client.js`.
+// 2. Replace the placeholder values below with your actual Supabase URL and anon key.
+// 3. The `supabase-client.js` file is already listed in `.gitignore` to prevent it from being committed.
+
+const { createClient } = supabase;
+
+// Replace with your own Supabase credentials
+const supabaseUrl = 'YOUR_SUPABASE_URL';
+const supabaseKey = 'YOUR_SUPABASE_ANON_KEY';
+
+// Initialize the Supabase client
+const _supabase = createClient(supabaseUrl, supabaseKey);
+
+console.log('Supabase client initialized. Make sure you are using your own credentials in supabase-client.js');
