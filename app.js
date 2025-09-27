@@ -388,25 +388,34 @@ ${c.address ? `ADR;CHARSET=utf-8:;;${c.address};;;;` : ''}
 ${c.birthday ? `BDAY:${c.birthday.replace(/-/g, '')}` : ''}
 END:VCARD`).join('\n\n');
 
-  try {
-    const typeNumber = 0;
-    const errorCorrectionLevel = 'L';
-    const qr = qrcode(typeNumber, errorCorrectionLevel);
-    qr.addData(vcf);
-    qr.make();
-    qrCodeDiv.innerHTML = qr.createImgTag(4, 8);
+  const blob = new Blob([vcf], { type: 'text/vcard;charset=utf-8' });
 
-    const blob = new Blob([vcf], { type: 'text/vcard;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.textContent = 'Download .vcf file';
-    link.download = 'contacts.vcf';
-    link.className = 'btn btn-link d-block mt-2';
-    qrCodeDiv.appendChild(link);
-  } catch (err) {
+  // Convert the blob to a Data URL
+  const reader = new FileReader();
+  reader.onloadend = function() {
+    const dataUrl = reader.result;
+
+    try {
+      const typeNumber = 0; // auto-detect
+      const errorCorrectionLevel = 'L';
+      const qr = qrcode(typeNumber, errorCorrectionLevel);
+      qr.addData(dataUrl); // Encode the Data URL, not the raw VCF string
+      qr.make();
+
+      qrCodeDiv.innerHTML = qr.createImgTag(4, 8);
+
+      const link = document.createElement('a');
+      link.href = dataUrl;
+      link.textContent = 'Download .vcf file';
+      link.download = 'contacts.vcf';
+      link.className = 'btn btn-link d-block mt-2';
+      qrCodeDiv.appendChild(link);
+
+    } catch (err) {
       qrCodeDiv.innerHTML = 'Error generating QR code. The contact list may be too large.';
-  }
+    }
+  };
+  reader.readAsDataURL(blob);
 }
 
 // --- IMPORT / EXPORT ---
