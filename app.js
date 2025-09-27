@@ -1,211 +1,384 @@
+// --- AUTHENTICATION & PAGE SETUP ---
 
-let contacts = [];
-
-document.getElementById("contactForm").addEventListener("submit", function (e) {
-  e.preventDefault();
-  const index = document.getElementById("editingIndex").value;
-  const contact = {
-    name: document.getElementById("name").value.trim(),
-    phone: document.getElementById("phone").value.trim(),
-    email: document.getElementById("email").value.trim(),
-    address: document.getElementById("address").value.trim(),
-    birthday: document.getElementById("birthday").value.trim()
-  };
-  if (!contact.name || !contact.phone) return alert("Name and Phone are required.");
-
-  if (index) {
-    contacts[+index] = contact;
+document.addEventListener('DOMContentLoaded', () => {
+  handleAuthRedirect();
+  if (document.getElementById('loginForm')) {
+    setupAuthForms();
   } else {
-    if (contacts.find(c => c.phone === contact.phone)) {
-      return alert("Duplicate phone number.");
-    }
-    contacts.push(contact);
+    setupApp();
   }
-  renderContacts();
-  this.reset();
-  document.getElementById("editingIndex").value = "";
-  bootstrap.Modal.getInstance(document.getElementById("contactModal")).hide();
 });
 
+const handleAuthRedirect = async () => {
+  const { data: { session } } = await _supabase.auth.getSession();
+  const onLoginPage = window.location.pathname.endsWith('login.html');
+  if (session && onLoginPage) {
+    window.location.href = 'index.html';
+  } else if (!session && !onLoginPage) {
+    window.location.href = 'login.html';
+  }
+};
+
+function setupAuthForms() {
+  const loginForm = document.getElementById('loginForm');
+  const signUpForm = document.getElementById('signUpForm');
+  const loginView = document.getElementById('loginView');
+  const signUpView = document.getElementById('signUpView');
+  const showSignUp = document.getElementById('showSignUp');
+  const showLogin = document.getElementById('showLogin');
+
+  showSignUp.addEventListener('click', (e) => { e.preventDefault(); loginView.style.display = 'none'; signUpView.style.display = 'block'; });
+  showLogin.addEventListener('click', (e) => { e.preventDefault(); signUpView.style.display = 'none'; loginView.style.display = 'block'; });
+
+  loginForm.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const { error } = await _supabase.auth.signInWithPassword({
+      email: document.getElementById('loginEmail').value,
+      password: document.getElementById('loginPassword').value,
+    });
+    if (error) document.getElementById('loginErrorMessage').textContent = error.message;
+    else window.location.href = 'index.html';
+  });
+
+  signUpForm.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const { error } = await _supabase.auth.signUp({
+      email: document.getElementById('signUpEmail').value,
+      password: document.getElementById('signUpPassword').value,
+    });
+    if (error) {
+      document.getElementById('signUpErrorMessage').textContent = error.message;
+    } else {
+      alert('Sign-up successful! Please check your email for a confirmation link.');
+      signUpView.style.display = 'none';
+      loginView.style.display = 'block';
+    }
+  });
+}
+
+async function setupApp() {
+  document.getElementById('logoutButton').addEventListener('click', async () => {
+    await _supabase.auth.signOut();
+    window.location.href = 'login.html';
+  });
+
+  // Attach all other event listeners for the main app
+  document.getElementById('searchInput').addEventListener('input', filterContacts);
+  document.getElementById('addContactBtn').addEventListener('click', () => openContactModal());
+  document.getElementById('filterToggle').addEventListener('change', loadInitialData);
+  document.getElementById('bulkApplyBtn').addEventListener('click', handleBulkAction);
+  document.getElementById('bulkActionSelect').addEventListener('change', (e) => {
+    document.getElementById('bulkCategorySelect').style.display = e.target.value === 'add_category' ? 'block' : 'none';
+  });
+  document.getElementById('generateQrBtn').addEventListener('click', generateQRCode);
+  document.getElementById('contactForm').addEventListener('submit', handleSaveContact);
+  document.getElementById('addCategoryForm').addEventListener('submit', addCategory);
+  document.getElementById('addCustomFieldForm').addEventListener('submit', addCustomField);
+  document.getElementById('categoriesModal').addEventListener('show.bs.modal', renderCategoryList);
+  document.getElementById('customFieldsModal').addEventListener('show.bs.modal', renderCustomFieldList);
+
+  loadInitialData();
+}
+
+
+// --- GLOBAL STATE & DATA LOADING ---
+let contacts = [];
+let categories = [];
+let customFieldDefs = [];
+
+async function loadInitialData() {
+  const isActiveFilter = document.getElementById('filterToggle').checked;
+
+  // Fetch all data in parallel
+  const [{ data: contactsData }, { data: categoriesData }, { data: customFieldsData }] = await Promise.all([
+      _supabase.from('contacts').select('*, contact_categories(categories(*)), custom_fields_values(custom_fields_definitions(*), value)').eq('is_active', isActiveFilter).order('name'),
+      _supabase.from('categories').select('*').order('name'),
+      _supabase.from('custom_fields_definitions').select('*').order('field_name')
+  ]);
+
+  categories = categoriesData;
+  customFieldDefs = customFieldsData;
+
+  // Process contacts to be easier to work with
+  contacts = contactsData.map(c => {
+      return {
+          ...c,
+          categories: c.contact_categories.map(cc => cc.categories),
+          custom_fields: c.custom_fields_values.reduce((acc, cfv) => {
+              acc[cfv.custom_fields_definitions.field_name] = cfv.value;
+              return acc;
+          }, {})
+      };
+  });
+
+  renderContacts();
+  populateCategoryFilter();
+}
+
+// --- RENDERING ---
 function renderContacts(data = contacts) {
-  const grid = document.getElementById("contactsGrid");
-  grid.innerHTML = data.map((c, i) => `
+  const grid = document.getElementById('contactsGrid');
+  grid.innerHTML = data.map(c => `
     <div class="contact-card">
-      <strong>${c.name}</strong><br />
+      <input type="checkbox" class="contact-select" data-contact-id="${c.id}">
+      <strong>${c.name}</strong> ${c.is_active ? '' : '<span class="badge bg-secondary">Archived</span>'}<br />
       📞 ${c.phone}<br />
-      ${c.email ? `✉️ ${c.email}<br />` : ""}
-      ${c.address ? `📍 ${c.address}<br />` : ""}
-      ${c.birthday ? `🎂 ${c.birthday} <button class="btn-small btn-secondary" onclick="downloadBirthdayICS('${c.name}', '${c.birthday}')">📅</button>` : ""}
-      <br />
-      <button class="btn-small btn-primary" onclick="editContact(${i})">✏️ Edit</button>
-      <button class="btn-small btn-danger" onclick="deleteContact(${i})">🗑 Delete</button>
+      ${c.email ? `✉️ ${c.email}<br />` : ''}
+      ${c.address ? `📍 ${c.address}<br />` : ''}
+      ${c.birthday ? `🎂 ${c.birthday}<br />` : ''}
+      <div class="mt-1">
+        ${c.categories.map(cat => `<span class="badge bg-info me-1">${cat.name}</span>`).join('')}
+      </div>
+      ${renderCustomFields(c.custom_fields)}
+      <hr>
+      <button class="btn-small btn-primary" onclick="openContactModal(${c.id})">✏️ Edit</button>
+      <button class="btn-small btn-danger" onclick="deleteContact(${c.id})">🗑 Delete</button>
     </div>
-  `).join("");
+  `).join('');
 }
 
-function editContact(i) {
-  const c = contacts[i];
-  document.getElementById("name").value = c.name;
-  document.getElementById("phone").value = c.phone;
-  document.getElementById("email").value = c.email;
-  document.getElementById("address").value = c.address;
-  document.getElementById("birthday").value = c.birthday;
-  document.getElementById("editingIndex").value = i;
-  new bootstrap.Modal(document.getElementById("contactModal")).show();
+function renderCustomFields(fields) {
+    if (!fields || Object.keys(fields).length === 0) return '';
+    let html = '<div class="mt-1"><strong>Details:</strong><br/>';
+    for (const [key, value] of Object.entries(fields)) {
+        html += `&bull; ${key}: ${value}<br/>`;
+    }
+    return html;
 }
 
-function deleteContact(i) {
-  if (confirm("Delete this contact?")) {
-    contacts.splice(i, 1);
-    renderContacts();
+// --- CONTACT MANAGEMENT ---
+async function handleSaveContact(e) {
+  e.preventDefault();
+  const editingId = document.getElementById('editingIndex').value;
+  const contactData = {
+    name: document.getElementById('name').value.trim(),
+    phone: document.getElementById('phone').value.trim(),
+    email: document.getElementById('email').value.trim(),
+    address: document.getElementById('address').value.trim(),
+    birthday: document.getElementById('birthday').value,
+    is_active: document.getElementById('is_active').checked,
+  };
+
+  // Upsert the contact
+  const { data: savedContact, error } = await _supabase.from('contacts').upsert({ id: editingId || undefined, ...contactData }).select().single();
+  if (error) return alert(`Error saving contact: ${error.message}`);
+
+  // --- Handle categories ---
+  const selectedCategoryIds = Array.from(document.getElementById('categories').selectedOptions).map(opt => opt.value);
+  // Delete existing category links
+  await _supabase.from('contact_categories').delete().eq('contact_id', savedContact.id);
+  // Insert new ones
+  if (selectedCategoryIds.length) {
+      const categoryLinks = selectedCategoryIds.map(catId => ({ contact_id: savedContact.id, category_id: catId }));
+      await _supabase.from('contact_categories').insert(categoryLinks);
+  }
+
+  // --- Handle custom fields ---
+  await _supabase.from('custom_fields_values').delete().eq('contact_id', savedContact.id);
+  const customFieldValues = [];
+  for (const field of customFieldDefs) {
+      const input = document.getElementById(`custom_${field.id}`);
+      if (input && input.value) {
+          customFieldValues.push({ contact_id: savedContact.id, field_id: field.id, value: input.value });
+      }
+  }
+  if (customFieldValues.length) {
+      await _supabase.from('custom_fields_values').insert(customFieldValues);
+  }
+
+  bootstrap.Modal.getInstance(document.getElementById('contactModal')).hide();
+  loadInitialData();
+}
+
+async function deleteContact(id) {
+  if (confirm("Are you sure you want to delete this contact?")) {
+    await _supabase.from('contacts').delete().eq('id', id);
+    loadInitialData();
   }
 }
 
-function resetForm() {
-  document.getElementById("editingIndex").value = "";
-}
+function openContactModal(contactId = null) {
+  document.getElementById('contactForm').reset();
+  document.getElementById('editingIndex').value = '';
+  document.getElementById('contactModalLabel').textContent = 'Add Contact';
 
-function filterContacts() {
-  const q = document.getElementById("searchInput").value.toLowerCase();
-  renderContacts(contacts.filter(c =>
-    c.name.toLowerCase().includes(q) ||
-    c.phone.includes(q) ||
-    (c.email && c.email.toLowerCase().includes(q))
-  ));
-}
+  populateCategoriesDropdown();
+  populateCustomFieldsForm();
 
-function exportContacts() {
-  const vcf = contacts.map(c => `BEGIN:VCARD
-VERSION:3.0
-UID:uid-${c.phone}
-FN:${c.name}
-TEL:${c.phone}
-${c.email ? `EMAIL:${c.email}` : ""}
-${c.address ? `ADR:;;${c.address};;;;` : ""}
-${c.birthday ? `BDAY:${c.birthday}` : ""}
-END:VCARD`).join("\n\n");
-  const blob = new Blob([vcf], { type: "text/vcard" });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = "contacts.vcf";
-  a.click();
-}
+  if (contactId) {
+    const contact = contacts.find(c => c.id === contactId);
+    if (contact) {
+      document.getElementById('editingIndex').value = contact.id;
+      document.getElementById('contactModalLabel').textContent = 'Edit Contact';
+      document.getElementById('name').value = contact.name;
+      document.getElementById('phone').value = contact.phone;
+      document.getElementById('email').value = contact.email || '';
+      document.getElementById('address').value = contact.address || '';
+      document.getElementById('birthday').value = contact.birthday || '';
+      document.getElementById('is_active').checked = contact.is_active;
 
-function exportToExcel() {
-  const ws = XLSX.utils.json_to_sheet(contacts);
-  const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, ws, "Contacts");
-  XLSX.writeFile(wb, "contacts.xlsx");
-}
-
-function downloadBirthdayICS(name, date) {
-  const d = new Date(date);
-  const str = `${d.getFullYear()}${String(d.getMonth()+1).padStart(2,'0')}${String(d.getDate()).padStart(2,'0')}`;
-  const ics = `BEGIN:VCALENDAR
-VERSION:2.0
-BEGIN:VEVENT
-SUMMARY:🎂 ${name}'s Birthday
-DTSTART;VALUE=DATE:${str}
-RRULE:FREQ=YEARLY
-END:VEVENT
-END:VCALENDAR`;
-  const blob = new Blob([ics], { type: 'text/calendar' });
-  const a = document.createElement("a");
-  a.href = URL.createObjectURL(blob);
-  a.download = `${name}_birthday.ics`;
-  a.click();
-}
-
-function downloadAllBirthdays() {
-  const events = contacts.filter(c => c.birthday).map(c => {
-    const d = new Date(c.birthday);
-    const str = `${d.getFullYear()}${String(d.getMonth()+1).padStart(2,'0')}${String(d.getDate()).padStart(2,'0')}`;
-    return `BEGIN:VEVENT
-SUMMARY:🎂 ${c.name}'s Birthday
-DTSTART;VALUE=DATE:${str}
-RRULE:FREQ=YEARLY
-END:VEVENT`;
-  }).join("\n");
-  const ics = `BEGIN:VCALENDAR\nVERSION:2.0\n${events}\nEND:VCALENDAR`;
-  const blob = new Blob([ics], { type: 'text/calendar' });
-  const a = document.createElement("a");
-  a.href = URL.createObjectURL(blob);
-  a.download = "birthday_calendar.ics";
-  a.click();
-}
-
-function generateQRCode() {
-  const link = document.getElementById("vcfLink").value;
-  if (!link) return alert("Please enter a VCF URL.");
-  const qr = `https://chart.googleapis.com/chart?cht=qr&chs=250x250&chl=${encodeURIComponent(link)}`;
-  document.getElementById("qrCode").innerHTML = `<img src="\${qr}" alt="QR Code">`;
-}
-
-function handleUpload() {
-  const file = document.getElementById("unifiedUpload").files[0];
-  if (!file) return;
-
-  if (contacts.length && !confirm("⚠️ This will replace all current contacts. Continue?")) return;
-
-  contacts = [];
-  renderContacts();
-
-  const ext = file.name.split('.').pop().toLowerCase();
-  if (ext === "vcf") importVCF(file);
-  else if (ext === "xlsx" || ext === "csv") importExcel(file);
-  else alert("Unsupported file type.");
-}
-
-function importVCF(file) {
-  const reader = new FileReader();
-  reader.onload = function(e) {
-    const lines = e.target.result.split(/\r?\n/);
-    let contact = {};
-    lines.forEach(line => {
-      if (line.startsWith("FN:")) contact.name = line.slice(3);
-      else if (line.startsWith("TEL:")) contact.phone = line.slice(4);
-      else if (line.startsWith("EMAIL:")) contact.email = line.slice(6);
-      else if (line.startsWith("ADR:")) contact.address = line.split(":")[1]?.replace(/;/g, " ");
-      else if (line.startsWith("BDAY:")) contact.birthday = line.slice(5);
-      else if (line === "END:VCARD") {
-        if (contact.phone && !contacts.find(c => c.phone === contact.phone)) contacts.push({...contact});
-        contact = {};
-      }
-    });
-    renderContacts();
-    alert("VCF imported.");
-  };
-  reader.readAsText(file);
-}
-
-function importExcel(file) {
-  const reader = new FileReader();
-  reader.onload = function (e) {
-    try {
-      const data = new Uint8Array(e.target.result);
-      const workbook = XLSX.read(data, { type: 'array' });
-      const sheet = workbook.Sheets[workbook.SheetNames[0]];
-      const rows = XLSX.utils.sheet_to_json(sheet, { defval: "" });
-
-      rows.forEach(row => {
-        let phone = row.Phone || row.phone || row["Phone Number"];
-        if (!phone || contacts.find(c => c.phone === phone)) return;
-
-        contacts.push({
-          name: row.Name || row.name || "",
-          phone: phone,
-          email: row.Email || row.email || "",
-          address: row.Address || row.address || "",
-          birthday: row.Birthday || row.birthday || ""
-        });
+      const assignedCategoryIds = contact.categories.map(c => c.id);
+      Array.from(document.getElementById('categories').options).forEach(opt => {
+        if (assignedCategoryIds.includes(parseInt(opt.value))) opt.selected = true;
       });
 
-      renderContacts();
-      alert("✅ Excel imported successfully.");
-    } catch (err) {
-      alert("⚠️ Error reading Excel file: " + err.message);
+      customFieldDefs.forEach(field => {
+          const input = document.getElementById(`custom_${field.id}`);
+          if (input && contact.custom_fields && contact.custom_fields[field.field_name]) {
+              input.value = contact.custom_fields[field.field_name];
+          }
+      });
     }
-  };
-  reader.readAsArrayBuffer(file);
+  }
+  new bootstrap.Modal(document.getElementById('contactModal')).show();
+}
+
+// --- UI HELPERS ---
+function filterContacts() {
+  const query = document.getElementById('searchInput').value.toLowerCase();
+  const filtered = contacts.filter(c => c.name.toLowerCase().includes(query) || c.phone.includes(query) || (c.email && c.email.toLowerCase().includes(query)));
+  renderContacts(filtered);
+}
+
+function populateCategoriesDropdown() {
+  const select = document.getElementById('categories');
+  select.innerHTML = categories.map(c => `<option value="${c.id}">${c.name}</option>`).join('');
+}
+
+function populateCustomFieldsForm() {
+  const container = document.getElementById('customFieldsContainer');
+  container.innerHTML = customFieldDefs.map(field => `
+    <div class="mb-3"><label class="form-label">${field.field_name}</label>
+    <input type="text" id="custom_${field.id}" class="form-control" /></div>
+  `).join('');
+}
+
+// --- CATEGORY & CUSTOM FIELD MANAGEMENT ---
+async function renderCategoryList() {
+  const { data } = await _supabase.from('categories').select('*').order('name');
+  const list = document.getElementById('categoryList');
+  list.innerHTML = data.map(c => `
+    <li class="list-group-item d-flex justify-content-between align-items-center">
+      ${c.name} <button class="btn btn-danger btn-sm" onclick="deleteCategory(${c.id})">Delete</button>
+    </li>`).join('');
+}
+
+async function addCategory(e) {
+  e.preventDefault();
+  const name = document.getElementById('newCategoryName').value.trim();
+  if (!name) return;
+  await _supabase.from('categories').insert({ name });
+  document.getElementById('newCategoryName').value = '';
+  renderCategoryList();
+  loadInitialData(); // To refresh dropdowns
+}
+
+async function deleteCategory(id) {
+  if (confirm('Are you sure you want to delete this category?')) {
+    await _supabase.from('categories').delete().eq('id', id);
+    renderCategoryList();
+    loadInitialData();
+  }
+}
+
+async function renderCustomFieldList() {
+  const { data } = await _supabase.from('custom_fields_definitions').select('*').order('field_name');
+  const list = document.getElementById('customFieldList');
+  list.innerHTML = data.map(f => `
+    <li class="list-group-item d-flex justify-content-between align-items-center">
+      ${f.field_name} <button class="btn btn-danger btn-sm" onclick="deleteCustomField(${f.id})">Delete</button>
+    </li>`).join('');
+}
+
+async function addCustomField(e) {
+  e.preventDefault();
+  const name = document.getElementById('newCustomFieldName').value.trim();
+  if (!name) return;
+  await _supabase.from('custom_fields_definitions').insert({ field_name: name });
+  document.getElementById('newCustomFieldName').value = '';
+  renderCustomFieldList();
+  loadInitialData();
+}
+
+async function deleteCustomField(id) {
+  if (confirm('Are you sure you want to delete this custom field?')) {
+    await _supabase.from('custom_fields_definitions').delete().eq('id', id);
+    renderCustomFieldList();
+    loadInitialData();
+  }
+}
+
+// --- BULK ACTIONS & QR CODE ---
+async function handleBulkAction() {
+    const selectedIds = Array.from(document.querySelectorAll('.contact-select:checked')).map(cb => cb.dataset.contactId);
+    if (selectedIds.length === 0) return alert('Please select contacts first.');
+    const action = document.getElementById('bulkActionSelect').value;
+
+    switch (action) {
+        case 'archive':
+            await _supabase.from('contacts').update({ is_active: false }).in('id', selectedIds);
+            break;
+        case 'unarchive':
+            await _supabase.from('contacts').update({ is_active: true }).in('id', selectedIds);
+            break;
+        case 'add_category':
+            const categoryId = document.getElementById('bulkCategorySelect').value;
+            if (!categoryId) return alert('Please select a category.');
+            const links = selectedIds.map(id => ({ contact_id: id, category_id: categoryId }));
+            await _supabase.from('contact_categories').insert(links);
+            break;
+        default: return alert('Invalid action.');
+    }
+    loadInitialData();
+}
+
+function populateCategoryFilter() {
+    const select = document.getElementById('bulkCategorySelect');
+    select.innerHTML = categories.map(c => `<option value="${c.id}">${c.name}</option>`).join('');
+}
+
+async function generateQRCode() {
+  const qrCodeDiv = document.getElementById('qrCode');
+  qrCodeDiv.innerHTML = 'Generating...';
+  const { data: activeContacts } = await _supabase.from('contacts').select('*').eq('is_active', true);
+
+  if (!activeContacts || activeContacts.length === 0) {
+    qrCodeDiv.innerHTML = 'No active contacts to generate a QR code for.';
+    return;
+  }
+
+  const vcf = activeContacts.map(c => `BEGIN:VCARD
+VERSION:3.0
+FN:${c.name}
+TEL:${c.phone}
+${c.email ? `EMAIL:${c.email}` : ''}
+${c.address ? `ADR;CHARSET=utf-8:;;${c.address};;;;` : ''}
+${c.birthday ? `BDAY:${c.birthday.replace(/-/g, '')}` : ''}
+END:VCARD`).join('\n\n');
+
+  try {
+    // Use the qrcode-generator library
+    const typeNumber = 0; // 0 = auto-detect
+    const errorCorrectionLevel = 'L';
+    const qr = qrcode(typeNumber, errorCorrectionLevel);
+    qr.addData(vcf);
+    qr.make();
+
+    // Create an image tag from the generated QR code
+    qrCodeDiv.innerHTML = qr.createImgTag(4, 8); // (cellSize, margin)
+
+    // Also provide a direct download link for the VCF data
+    const blob = new Blob([vcf], { type: 'text/vcard;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.textContent = 'Download .vcf file';
+    link.download = 'contacts.vcf';
+    link.className = 'btn btn-link d-block mt-2';
+    qrCodeDiv.appendChild(link);
+
+  } catch (err) {
+      qrCodeDiv.innerHTML = 'Error generating QR code. The contact list may be too large.';
+      console.error(err);
+  }
 }
