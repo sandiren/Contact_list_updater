@@ -382,62 +382,38 @@ async function generateQRCode() {
     return;
   }
 
-  const vcf = activeContacts.map(c => `BEGIN:VCARD
+  // Clear previous QR codes
+  qrCodeDiv.innerHTML = '';
+
+  activeContacts.forEach(contact => {
+    const vcf = `BEGIN:VCARD
 VERSION:3.0
-FN:${c.name}
-TEL:${c.phone}
-${c.email ? `EMAIL:${c.email}` : ''}
-${c.address ? `ADR;CHARSET=utf-8:;;${c.address};;;;` : ''}
-${c.birthday ? `BDAY:${c.birthday.replace(/-/g, '')}` : ''}
-END:VCARD`).join('\n\n');
+FN:${contact.name}
+TEL:${contact.phone}
+${contact.email ? `EMAIL:${contact.email}` : ''}
+${contact.address ? `ADR;CHARSET=utf-8:;;${contact.address};;;;` : ''}
+${contact.birthday ? `BDAY:${contact.birthday.replace(/-/g, '')}` : ''}
+END:VCARD`;
 
-  const blob = new Blob([vcf], { type: 'text/vcard;charset=utf-8' });
-  const fileName = `contacts-${Date.now()}.vcf`;
+    try {
+      const typeNumber = 0; // auto-detect
+      const errorCorrectionLevel = 'L';
+      const qr = qrcode(typeNumber, errorCorrectionLevel);
+      qr.addData(vcf);
+      qr.make();
 
-  // Upload the VCF file to Supabase Storage
-  const { data: uploadData, error: uploadError } = await _supabase.storage
-    .from('vcf-files')
-    .upload(fileName, blob, {
-      cacheControl: '3600',
-      upsert: false
-    });
+      const qrContainer = document.createElement('div');
+      qrContainer.className = 'd-inline-block text-center p-2';
+      qrContainer.innerHTML = `
+        <p class="mb-1"><strong>${contact.name}</strong></p>
+        ${qr.createImgTag(3, 4)}
+      `;
+      qrCodeDiv.appendChild(qrContainer);
 
-  if (uploadError) {
-    qrCodeDiv.innerHTML = 'Error uploading contact file.';
-    return showNotification(`Storage Error: ${uploadError.message}`, 'danger');
-  }
-
-  // Get the public URL of the uploaded file
-  const { data: urlData } = _supabase.storage
-    .from('vcf-files')
-    .getPublicUrl(fileName);
-
-  if (!urlData || !urlData.publicUrl) {
-      qrCodeDiv.innerHTML = 'Error getting public URL for the contact file.';
-      return;
-  }
-
-  const publicUrl = urlData.publicUrl;
-
-  try {
-    const typeNumber = 0;
-    const errorCorrectionLevel = 'L';
-    const qr = qrcode(typeNumber, errorCorrectionLevel);
-    qr.addData(publicUrl);
-    qr.make();
-
-    qrCodeDiv.innerHTML = qr.createImgTag(4, 8);
-
-    const link = document.createElement('a');
-    link.href = publicUrl;
-    link.textContent = 'Download .vcf file';
-    link.download = 'contacts.vcf';
-    link.className = 'btn btn-link d-block mt-2';
-    qrCodeDiv.appendChild(link);
-
-  } catch (err) {
-    qrCodeDiv.innerHTML = 'Error generating QR code.';
-  }
+    } catch (err) {
+      console.error(`Could not generate QR code for ${contact.name}:`, err);
+    }
+  });
 }
 
 // --- IMPORT / EXPORT ---

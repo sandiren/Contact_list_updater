@@ -60,3 +60,30 @@ const _supabase = createClient(supabaseUrl, supabaseKey);
 ├── .gitignore                  # <-- Ignores your secret keys
 └── README.md
 ```
+
+---
+
+## 🚨 Troubleshooting: Fixing "row level security" Errors
+
+If you encounter a "new row violates row level security policy" error when generating a QR code, it means the security rules for file storage need to be updated.
+
+Please run the following SQL script in your Supabase **SQL Editor** to fix this. This script is safe to run multiple times.
+
+```sql
+-- This script fixes the security rules for Supabase Storage.
+
+-- Drop policies if they already exist to prevent errors
+DROP POLICY IF EXISTS "Allow authenticated uploads to vcf-files" ON storage.objects;
+DROP POLICY IF EXISTS "Allow public reads from vcf-files" ON storage.objects;
+
+-- Create policy to allow logged-in users to UPLOAD contact files
+CREATE POLICY "Allow authenticated uploads to vcf-files"
+ON storage.objects FOR INSERT
+TO authenticated
+WITH CHECK ( bucket_id = 'vcf-files' );
+
+-- Create policy to allow ANYONE to DOWNLOAD the contact file via the QR code
+CREATE POLICY "Allow public reads from vcf-files"
+ON storage.objects FOR SELECT
+USING ( bucket_id = 'vcf-files' );
+```
